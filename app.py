@@ -90,12 +90,18 @@ def main():
             img_tensor, skeleton_img, transform_meta = preprocess_image(image)
             
             model = KolamModel(config)
-            if os.path.exists("checkpoint_epoch_0.pt"):
+            import glob
+            checkpoints = glob.glob("checkpoint_epoch_*.pt")
+            if checkpoints:
+                latest_ckpt = max(checkpoints, key=lambda x: int(x.split('_')[-1].split('.')[0]))
                 try:
-                    checkpoint = torch.load("checkpoint_epoch_0.pt", map_location="cpu")
+                    checkpoint = torch.load(latest_ckpt, map_location="cpu")
                     model.load_state_dict(checkpoint['model_state_dict'])
+                    st.success("Loaded trained weights from {}".format(latest_ckpt))
                 except Exception as e:
-                    st.warning("Failed to load checkpoint, utilizing random weights: {}".format(e))
+                    st.warning("Failed to load {}, utilizing random weights: {}".format(latest_ckpt, e))
+            else:
+                st.info("No trained checkpoints found. Using randomly initialized weights.")
             
             model.eval()
             with torch.no_grad():
