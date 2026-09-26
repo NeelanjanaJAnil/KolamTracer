@@ -52,15 +52,23 @@ def process_data(zip_path="one-stroke-dotted-pulli-kolam.zip"):
             elif ext == '.csv':
                 csvs.append(os.path.join(root, file))
                 
-    def get_stem(filepath):
-        return os.path.splitext(os.path.basename(filepath))[0]
+    def get_core_stem(filepath):
+        stem = os.path.splitext(os.path.basename(filepath))[0]
+        # If it's something like kolam109-0, we just want 'kolam109' to match the CSV
+        if '-' in stem:
+            return stem.rsplit('-', 1)[0]
+        return stem
         
-    image_map = {get_stem(f): f for f in images}
-    csv_map = {get_stem(f): f for f in csvs}
+    csv_map = {get_core_stem(f): f for f in csvs}
     
-    # 1. Gather paired files strictly based on matching file stems
-    common_stems = set(image_map.keys()).intersection(set(csv_map.keys()))
-    total_pairs = len(common_stems)
+    # Gather pairs by finding the core CSV for each image
+    valid_pairs = []
+    for img in images:
+        core = get_core_stem(img)
+        if core in csv_map:
+            valid_pairs.append((img, csv_map[core]))
+            
+    total_pairs = len(valid_pairs)
     
     print("Found {} paired files in the archive. Starting sanity checks and migration...".format(total_pairs))
     
@@ -74,10 +82,7 @@ def process_data(zip_path="one-stroke-dotted-pulli-kolam.zip"):
     
     draw_progress_bar(0, total_pairs, prefix='Processing:', suffix='Complete', length=50)
     
-    for i, stem in enumerate(common_stems):
-        image_path = image_map[stem]
-        csv_path = csv_map[stem]
-        
+    for i, (image_path, csv_path) in enumerate(valid_pairs):
         try:
             # 2. Bounding Box Sanity Check
             df = pd.read_csv(csv_path)
@@ -108,8 +113,10 @@ def process_data(zip_path="one-stroke-dotted-pulli-kolam.zip"):
                 continue
                 
             # 3. Processing: Migrate clean files smoothly to their respective domains
+            # We rename the CSV to exactly match the image stem so train.py finds it 1-to-1
+            img_stem = os.path.splitext(os.path.basename(image_path))[0]
             dest_image_path = os.path.join(images_dir, os.path.basename(image_path))
-            dest_csv_path = os.path.join(csv_dir, os.path.basename(csv_path))
+            dest_csv_path = os.path.join(csv_dir, img_stem + '.csv')
             
             shutil.copy2(image_path, dest_image_path)
             shutil.copy2(csv_path, dest_csv_path)
