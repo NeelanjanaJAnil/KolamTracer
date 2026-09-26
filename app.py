@@ -12,6 +12,7 @@ from config import Config
 from model import KolamModel
 from dataset import denormalize
 from reconstruct import reconstruct_b_spline, reconstruct_fourier_descriptors
+from topology import evaluate_topology
 
 def get_fourier_latex(coords, transform_meta, num_harmonics=10):
     denorm_coords = denormalize(coords, transform_meta)
@@ -107,7 +108,15 @@ def main():
             x_fourier, y_fourier = reconstruct_fourier_descriptors(coords, transform_meta, num_harmonics=10)
             latex_formulas = get_fourier_latex(coords, transform_meta, num_harmonics=10)
             
+            # Topological Evaluation
+            betti_metrics = evaluate_topology(skeleton_img, x_spline, y_spline, x_fourier, y_fourier)
+            
             with col2:
+                st.markdown("### Topogical Homology Invariants")
+                st.markdown(f"**Stage 1/2 Mask:** $\\beta_0 = {betti_metrics['original'][0]}$, $\\beta_1 = {betti_metrics['original'][1]}$")
+                st.markdown(f"**B-Spline Engine:** $\\beta_0 = {betti_metrics['spline'][0]}$, $\\beta_1 = {betti_metrics['spline'][1]}$")
+                st.markdown(f"**Spectral Fourier:** $\\beta_0 = {betti_metrics['fourier'][0]}$, $\\beta_1 = {betti_metrics['fourier'][1]}$")
+                
                 st.markdown("### Fourier Algebraic Equations")
                 st.markdown(latex_formulas)
                 
