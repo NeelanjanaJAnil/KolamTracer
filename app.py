@@ -201,6 +201,12 @@ def fit_smooth_primitive(pts_yx):
         'pts': pts
     }
 
+def clean_equation_str(s: str) -> str:
+    import re
+    s = s.replace("+ -", "-").replace("+-", "-")
+    s = re.sub(r'(\d+)\.00(?!\d)', r'\1', s)
+    return s
+
 def format_equation(p):
     """Generates LaTeX formatted Parametric and Algebraic equations for a piece."""
     ptype = p['type']
@@ -210,7 +216,7 @@ def format_equation(p):
         dy = p1[1] - p0[1]
         param = f"\\begin{{pmatrix}} x(t) \\\\ y(t) \\end{{pmatrix}} = \\begin{{pmatrix}} {p0[0]:.2f} + {dx:.2f}t \\\\ {p0[1]:.2f} + {dy:.2f}t \\end{{pmatrix}}, \\quad t \\in [0, 1]"
         sign = "+" if p['C'] >= 0 else "-"
-        algeb = f"{p['A']:.3f}x + {p['B']:.3f}y {sign} {abs(p['C']):.3f} = 0"
+        algeb = f"{p['A']:.3f}x + {p['B']:.3f}y {sign} {abs(p['C']):.3f} = 0, \\text{{ valid for }} t \\in [0,1] \\text{{ (}} x \\text{{ from }} {p0[0]:.1f} \\text{{ to }} {p1[0]:.1f}, y \\text{{ from }} {p0[1]:.1f} \\text{{ to }} {p1[1]:.1f} \\text{{)}}"
     elif ptype == 'arc':
         h, k, r = p['h'], p['k'], p['r']
         th0, th1 = p['th0'], p['th1']
@@ -219,9 +225,13 @@ def format_equation(p):
     else:
         P0, P1, P2, P3 = p['P0'], p['P1'], p['P2'], p['P3']
         param = f"\\mathbf{{B}}(t) = (1-t)^3 \\begin{{pmatrix}} {P0[0]:.1f} \\\\ {P0[1]:.1f} \\end{{pmatrix}} + 3(1-t)^2 t \\begin{{pmatrix}} {P1[0]:.1f} \\\\ {P1[1]:.1f} \\end{{pmatrix}} + 3(1-t) t^2 \\begin{{pmatrix}} {P2[0]:.1f} \\\\ {P2[1]:.1f} \\end{{pmatrix}} + t^3 \\begin{{pmatrix}} {P3[0]:.1f} \\\\ {P3[1]:.1f} \\end{{pmatrix}}"
-        algeb = f"\\text{{Cubic polynomial with control points }} P_0({P0[0]:.0f},{P0[1]:.0f}), P_3({P3[0]:.0f},{P3[1]:.0f})"
+        algeb = "\\text{Implicit form: not provided (parametric only)}"
         
-    return {'type': ptype, 'param_latex': param, 'algebraic_latex': algeb}
+    return {
+        'type': ptype,
+        'param_latex': clean_equation_str(param),
+        'algebraic_latex': clean_equation_str(algeb)
+    }
 
 def process_kolam_graph(img_pil):
     """
@@ -435,21 +445,45 @@ def main():
         unsafe_allow_html=True
     )
     
-    # Upload Bar
-    uploaded_file = st.file_uploader("Upload Any Kolam / Rangoli Photo (PNG / JPG / JPEG)", type=['png', 'jpg', 'jpeg'])
-    
     base_dir = os.path.dirname(__file__)
     default_sample = os.path.join(base_dir, 'sample_data', 'images', 'kolam19-0.jpg')
+
+    # Source Selector
+    source_choice = st.radio(
+        "Source Selector",
+        ["Upload (blind pipeline)", "Dataset image (family, index, path from CSV)"],
+        horizontal=True
+    )
     
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        caption_text = "Uploaded Kolam"
-    elif os.path.exists(default_sample):
-        image = Image.open(default_sample)
-        caption_text = "Default Sample (Upload your own photo above)"
+    if source_choice == "Upload (blind pipeline)":
+        is_upload = True
+        source_line = "Source: upload (blind pipeline)"
+        f1_label = "Fit fidelity vs extracted skeleton"
+        uploaded_file = st.file_uploader("Upload Any Kolam / Rangoli Photo (PNG / JPG / JPEG)", type=['png', 'jpg', 'jpeg'])
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            caption_text = "Uploaded Kolam"
+        elif os.path.exists(default_sample):
+            image = Image.open(default_sample)
+            caption_text = "Default Sample (Upload your own photo above)"
+        else:
+            image = Image.new('RGB', (400, 400), color=(15, 15, 25))
+            caption_text = "Blank Canvas"
     else:
-        image = Image.new('RGB', (400, 400), color=(15, 15, 25))
-        caption_text = "Blank Canvas"
+        is_upload = False
+        f1_label = "Equation Verification (F1 Match)"
+        c_fam, c_idx = st.columns(2)
+        with c_fam:
+            family = st.selectbox("Lattice Grid Family", ['kolam19', 'kolam29', 'kolam109'], index=0)
+        with c_idx:
+            sample_idx = st.slider("Dataset Image Index", min_value=0, max_value=4, value=0)
+        csv_path = f"data/csv/{family}-{sample_idx}.csv"
+        ds_img_path = os.path.join(base_dir, "data", "images", f"{family}-{sample_idx}.jpg")
+        if not os.path.exists(ds_img_path):
+            ds_img_path = default_sample
+        image = Image.open(ds_img_path)
+        caption_text = f"Dataset Image: {family}-{sample_idx}"
+        source_line = f"Source: dataset image ({family}, {sample_idx}, {csv_path})"
         
     # Run the True Graph Skeleton Process
     with st.spinner("Extracting centerline graph, fitting geometric equations, and verifying reconstruction..."):
@@ -458,15 +492,17 @@ def main():
     counts = res['counts']
     
     # Verification Summary Badges Bar
+    st.markdown(f"*{source_line}*")
     st.markdown(f"""
     <div class='badge-bar'>
-        <span class='metric-badge badge-green'>✓ Equation Verification: {res['f1']*100:.1f}% F1 Match</span>
+        <span class='metric-badge badge-green'>✓ {f1_label}: {res['f1']*100:.1f}%</span>
         <span class='metric-badge badge-green'>✓ Chamfer Deviation: {res['chamfer']:.2f} px</span>
         <span class='metric-badge badge-saffron'>✓ Total Fitted Pieces: {len(res['pieces'])}</span>
         <span class='metric-badge badge-saffron'>✓ Symmetry Seed Pieces: {len(res['orbit_reps'])}</span>
         <span class='metric-badge badge-info'>✓ Primitives: {counts['line']} Lines, {counts['arc']} Circular Arcs, {counts['bezier']} Béziers</span>
     </div>
     """, unsafe_allow_html=True)
+    st.markdown("<p style='color:#a4b0be; font-size:13px; margin-top:-6px; margin-bottom:14px;'>Uploads: equations are fitted to a skeleton extracted from this image (units: pixels).</p>", unsafe_allow_html=True)
     
     # ---------------------------------------------------------
     # MAIN TABS (CLEAN, ARTSY, INTUITIVE)
@@ -481,6 +517,7 @@ def main():
     # TAB 1: STUDIO & VISUAL RECONSTRUCTION
     # ---------------------------------------------------------
     with tab_studio:
+        st.markdown(f"*{source_line}*")
         st.markdown("### 🎨 Image vs. Equation-Regenerated Kolam")
         st.markdown(
             "The image on the left is your input. The middle image is **strictly re-drawn from the fitted equations** (zero original pixels, zero ghost lines). "
@@ -495,7 +532,7 @@ def main():
             st.markdown(f"**2. Regenerated from Equations ({len(res['pieces'])} Pieces)**")
             st.image((res['canvas_regen'] * 255).astype(np.uint8), use_container_width=True)
         with c_vis3:
-            st.markdown(f"**3. Verification Overlay (F1: {res['f1']*100:.1f}%)**")
+            st.markdown(f"**3. Verification Overlay ({f1_label}: {res['f1']*100:.1f}%)**")
             overlay = np.zeros((res['img_h'], res['img_w'], 3), dtype=np.uint8)
             overlay[res['skel']] = [0, 255, 255] # Cyan (Original)
             overlay[res['canvas_regen']] = np.maximum(overlay[res['canvas_regen']], [255, 0, 255]) # Magenta (Regenerated)
@@ -553,11 +590,18 @@ def main():
     # TAB 2: EQUATIONS
     # ---------------------------------------------------------
     with tab_equations:
+        st.markdown(f"*{source_line}*")
         st.markdown(f"### 📐 Symmetry-Reduced Seed Equations ({len(res['orbit_reps'])} Pieces)")
-        st.markdown(
-            f"Under quadrant reflection symmetry ($V_4$ Klein-4 group), these **{len(res['orbit_reps'])} canonical seed pieces** "
-            f"mirror to form the entire {len(res['pieces'])}-piece Kolam."
-        )
+        if is_upload:
+            st.markdown(
+                f"Approximate mirror-symmetry candidates: **{len(res['orbit_reps'])} pieces** have mirror partners within tolerance; "
+                f"the full set is NOT regenerated from them."
+            )
+        else:
+            st.markdown(
+                f"Under quadrant reflection symmetry ($V_4$ Klein-4 group), these **{len(res['orbit_reps'])} canonical seed pieces** "
+                f"mirror to form the entire {len(res['pieces'])}-piece Kolam."
+            )
         
         page = st.selectbox("Pagination (5 pieces per page)", range(1, math.ceil(max(1, len(res['orbit_reps'])) / 5) + 1))
         start_i = (page - 1) * 5
@@ -569,12 +613,18 @@ def main():
             badge_color = "badge-saffron" if eq['type'] == 'arc' else ("badge-info" if eq['type'] == 'line' else "badge-green")
             st.markdown(f"**Piece #{idx+1} <span class='metric-badge {badge_color}'>{eq['type'].upper()}</span>:**", unsafe_allow_html=True)
             st.latex(eq['param_latex'])
-            st.markdown(f"*Algebraic Implicit Form:* ${eq['algebraic_latex']}$")
+            if eq['type'] == 'bezier':
+                st.markdown("**Implicit form:** not provided (parametric only)")
+            else:
+                st.markdown(f"*Algebraic Implicit Form:* ${eq['algebraic_latex']}$")
             
         with st.expander(f"📜 View Full Piecewise Equation List ({len(res['pieces'])} Pieces)"):
             for i, p in enumerate(res['pieces'][:50]):
                 eq = format_equation(p)
-                st.markdown(f"Piece #{i+1} ({eq['type']}): ${eq['algebraic_latex']}$")
+                if eq['type'] == 'bezier':
+                    st.markdown(f"Piece #{i+1} ({eq['type']}): Implicit form: not provided (parametric only)")
+                else:
+                    st.markdown(f"Piece #{i+1} ({eq['type']}): ${eq['algebraic_latex']}$")
             if len(res['pieces']) > 50:
                 st.info(f"... and {len(res['pieces']) - 50} more pieces (download full JSON below).")
                 
@@ -591,16 +641,20 @@ def main():
     # TAB 3: VERIFICATION & HOMOLOGY AUDIT
     # ---------------------------------------------------------
     with tab_audit:
+        st.markdown(f"*{source_line}*")
         st.markdown("### 📊 Mathematical Homology & Equation Verification")
         
         c_a1, c_a2 = st.columns(2)
         with c_a1:
-            st.markdown("#### Topological Homology Invariants (Betti Numbers)")
-            st.markdown(f"- **Original Image Mask:** $\\beta_0 = {res['b0_orig']}$ connected components, $\\beta_1 = {res['b1_orig']}$ closed loops")
-            st.markdown(f"- **Regenerated from Equations:** $\\beta_0 = {res['b0_reg']}$ connected components, $\\beta_1 = {res['b1_reg']}$ closed loops")
-            st.markdown(f"- **Loop Preservation:** {min(100.0, res['b1_reg'] / max(1, res['b1_orig']) * 100):.1f}% cycle preservation")
+            with st.expander("Topology check (under correction)", expanded=False):
+                st.markdown("Raster Betti numbers compare an image mask that includes the dots against piecewise equations that are not yet joined at shared nodes; this comparison is being corrected.")
+                st.markdown("#### Topological Homology Invariants (Betti Numbers)")
+                st.markdown(f"- **Original Image Mask:** $\\beta_0 = {res['b0_orig']}$ connected components, $\\beta_1 = {res['b1_orig']}$ closed loops")
+                st.markdown(f"- **Regenerated from Equations:** $\\beta_0 = {res['b0_reg']}$ connected components, $\\beta_1 = {res['b1_reg']}$ closed loops")
+                st.markdown(f"- **Loop Preservation:** {min(100.0, res['b1_reg'] / max(1, res['b1_orig']) * 100):.1f}% cycle preservation")
         with c_a2:
             st.markdown("#### Geometric Reconstruction Accuracy")
+            st.markdown(f"- **{f1_label}:** **{res['f1']*100:.2f}%**")
             st.markdown(f"- **F1 Score:** **{res['f1']*100:.2f}%**")
             st.markdown(f"- **Stroke Precision:** {res['prec']*100:.2f}%")
             st.markdown(f"- **Stroke Recall:** {res['rec']*100:.2f}%")
