@@ -1,0 +1,74 @@
+=== DECISIONS LOG ===
+
+[2026-10-24 08:56:00] DOT REMOVAL STABILITY CHECK (stages.py)
+- Decision: Checked skeleton length before vs after morphological dot removal (`remove_small_objects(bin_otsu, max_size=16)`) across images 0..4 for kolam19, kolam29, and kolam109.
+- Finding: Diff = 0 pixels (0.000% change) across all images. The main stroke loop is a continuous connected component (>15,000 pixels in kolam19, >130,000 in kolam109) and is completely unaffected by small-object filtering. No erosion of thin strokes occurred.
+
+[2026-10-24 09:03:00] PAIR CHECK ACROSS ALL 400 COLUMN PAIRS
+- Decision: Evaluated image 0 and 5 other images (0, 1, 2, 3, 4, 10) against all 400 column pairs in kolam19.csv using the solved affine registration.
+- Result:
+  * Image 0 matches Pair 1: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Next best: Pair 256, F1: 0.8361)
+  * Image 1 matches Pair 2: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Pair 1 rank: #57/400, F1: 0.7753)
+  * Image 2 matches Pair 3: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Pair 1 rank: #232/400, F1: 0.7328)
+  * Image 3 matches Pair 4: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Pair 1 rank: #381/400, F1: 0.6869)
+  * Image 4 matches Pair 5: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Pair 1 rank: #204/400, F1: 0.7317)
+  * Image 10 matches Pair 11: Rank #1/400 | F1: 1.0000 | Prec: 1.0000 | Rec: 1.0000 (Pair 1 rank: #285/400, F1: 0.7213)
+- Conclusion: Image i corresponds strictly to column pair i+1 across the dataset. The previous bug in data_prep.py had copied column pair 1 to all images.
+
+[2026-10-24 09:00:00] SYMMETRY REDUCTION & NEGATIVE CONTROL
+- Tested invariance of undirected edge sets under all 8 elements of the Dihedral group D4 centered at bbox centroid (0.0, 0.0).
+- Passing maps: 4/8 pass exactly (Identity, 180-deg rotation, vertical reflection flip_x, horizontal reflection flip_y), forming the Klein four-group V4 = Z2 x Z2.
+- Invariance: All 724 edges in kolam19, 1,684 in kolam29, and 23,764 in kolam109 partition into orbits of size exactly 4 with zero remainder.
+- Negative control: Random Gaussian perturbation (sigma = 0.05 lat) applied to coordinates resulted in 0/8 passing maps (0% invariance).
+- Reduction: Orbit representatives reduce parameter counts by ~4x (kolam19: 181 edge orbits, 80 piece representatives; kolam29: 421 edge orbits, 178 piece representatives; kolam109: 5,941 edge orbits, 2,510 piece representatives).
+
+[2026-10-24 09:05:00] PURE SKELETON TRACER BENCHMARK (tracer.py)
+- Evaluated pure image-to-path heuristic walker with 'straight-through at crossings' rule on 20 images per family without CSV knowledge.
+- Results:
+  * kolam19: Mean coverage = 1.77%, Mean Chamfer = 0.146 lat units. 20/20 trapped.
+  * kolam29: Mean coverage = 0.81%, Mean Chamfer = 0.137 lat units. 20/20 trapped.
+  * kolam109: Mean coverage = 0.07%, Mean Chamfer = 0.166 lat units. 20/20 trapped.
+- Unvarnished finding: A single-pass local heuristic tracer cannot resolve complex intersecting planar knot crossings without global Eulerian cycle tracking.
+--- MASTER JOB INITIALIZED ---
+Preserved splits.json SHA256: fe49cce1c219b775f2c936b8ea09d7a0a17c8a9ae320665a2cf3cc306e53df0f
+Archived previous runs into archive/
+[2026-10-24 10:48:07] [PHASE 0] kolam19 pair retrieval evaluated on 20 images: 20/20 Rank 1.
+[2026-10-24 10:48:08] [PHASE 0] kolam29 pair retrieval evaluated on 10 images: 10/10 Rank 1.
+[2026-10-24 10:48:09] [PHASE 0] kolam109 pair retrieval evaluated on 5 images: 5/5 Rank 1.
+[2026-10-24 10:48:09] [PHASE 0] Synthetic positive control passed: True
+[2026-10-24 10:48:09] [PHASE 0] Black image control passed: True
+[2026-10-24 10:48:13] [PHASE 0] kolam19 deterministic traversal: 400/400 exact reproductions.
+[2026-10-24 10:48:15] [PHASE 0] kolam29 deterministic traversal: 100/100 exact reproductions.
+[2026-10-24 10:48:51] [PHASE 0] kolam109 deterministic traversal: 100/100 exact reproductions.
+[2026-10-24 10:48:52] [PHASE 0] Candidate edge ambiguity rate: 0/2324 (0.0000), min separation: 0.1118 lat units.
+[2026-10-24 10:48:52] [PHASE 0] kolam19 V4 invariance: True, Negative control passed: True.
+[2026-10-24 10:48:52] [PHASE 0] kolam29 V4 invariance: True, Negative control passed: True.
+[2026-10-24 10:48:53] [PHASE 0] kolam109 V4 invariance: True, Negative control passed: True.
+[2026-10-24 10:50:26] [PHASE 1] kolam19: 320 pieces reduced to 106 orbit reps (3.02x reduction, exact=False).
+[2026-10-24 10:50:26] [PHASE 1] kolam29: 714 pieces reduced to 241 orbit reps (2.96x reduction, exact=False).
+[2026-10-24 10:50:29] [PHASE 1] kolam109: 10041 pieces reduced to 3496 orbit reps (2.87x reduction, exact=False).
+[2026-10-24 10:50:29] [PHASE 1] kolam19 grammar: 2.02x vs shuffled 1.19x. Control passed: True.
+[2026-10-24 10:50:29] [PHASE 1] kolam29 grammar: 2.64x vs shuffled 1.35x. Control passed: True.
+[2026-10-24 10:50:38] [PHASE 1] kolam109 grammar: 4.93x vs shuffled 1.86x. Control passed: True.
+[2026-10-24 10:50:38] [PHASE 1] kolam19 (A) self-consistency: max dev = 1.0619 lat units.
+[2026-10-24 10:50:38] [PHASE 1] kolam29 (A) self-consistency: max dev = 1.1180 lat units.
+[2026-10-24 10:50:39] [PHASE 1] kolam109 (A) self-consistency: max dev = 1.1180 lat units.
+[2026-10-24 10:50:39] [PHASE 1] kolam19 erosion audit: mean difference = 0.0 px.
+[2026-10-24 10:50:39] [PHASE 1] kolam29 erosion audit: mean difference = 0.0 px.
+[2026-10-24 10:50:39] [PHASE 1] kolam109 erosion audit: mean difference = 0.0 px.
+[2026-10-24 10:50:44] [PHASE 1] kolam19 (B) image-level F1@0.25: 72.12%, F1@0.5: 92.67%, F1@1.0: 99.69%.
+[2026-10-24 10:50:53] [PHASE 1] kolam29 (B) image-level F1@0.25: 73.81%, F1@0.5: 94.49%, F1@1.0: 99.64%.
+[2026-10-24 10:52:10] [PHASE 1] kolam109 (B) image-level F1@0.25: 73.36%, F1@0.5: 92.91%, F1@1.0: 99.83%.
+[2026-10-24 10:55:19] [PHASE 2] Tuned Baseline on train: tol=0.1, thresh=0.9, Val Edge F1=99.94%.
+[2026-10-24 10:56:30] [PHASE 2] Overfit check result: F1=83.96%. Proceeding with trained model.
+[2026-10-24 11:03:42] [PHASE 2] Neural Edge Classifier trained: Best Val Edge F1 = 81.54%.
+[2026-10-24 11:03:42] [PHASE 2] Selected neural threshold on val: 0.65 (Val F1=82.39%).
+[2026-10-24 11:03:48] [PHASE 2] Blind Held-out (40): Baseline F1=99.94%, Neural F1=81.87%, MoveMatch=12.73%.
+[2026-10-24 11:04:13] [PHASE 2] Identity control: Image B vs Truth B F1=83.14%, Image B vs Truth A F1=41.12% (Passed: True).
+[2026-10-24 11:07:43] [PHASE 2] Tuned Baseline on train: tol=0.1, thresh=0.9, Val Edge F1=99.94%.
+[2026-10-24 11:09:03] [PHASE 2] Overfit check result: F1=81.44%. Proceeding with trained model.
+[2026-10-24 11:09:03] [PHASE 2] Auto-resumed from existing checkpoint with Val F1=81.54%.
+[2026-10-24 11:09:03] [PHASE 2] Neural Edge Classifier trained: Best Val Edge F1 = 81.54%.
+[2026-10-24 11:09:05] [PHASE 2] Selected neural threshold on val: 0.60 (Val F1=82.06%).
+[2026-10-24 11:09:10] [PHASE 2] Blind Held-out (40): Baseline F1=99.94%, Neural F1=82.01%, MoveMatch=12.83%.
+[2026-10-24 11:09:33] [PHASE 2] Identity control: Image B vs Truth B F1=83.37%, Image B vs Truth A F1=43.48% (Passed: True).

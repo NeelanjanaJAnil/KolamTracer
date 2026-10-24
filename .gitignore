@@ -1,0 +1,22 @@
+# Data and archives
+data/
+archive/
+one-stroke-dotted-pulli-kolam/
+one-stroke-dotted-pulli-kolam.zip
+temp_extract/
+
+# Checkpoints and models
+*.pt
+edge_run/checkpoints/
+
+# Python cache & logs
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+!reports/decisions.log
+train_stderr.log
+train_stdout.log
+*.tmp
+.DS_Store
+Thumbs.db

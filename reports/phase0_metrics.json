@@ -1,0 +1,416 @@
+{
+  "pair_retrieval": {
+    "kolam19": [
+      {
+        "image_idx": 0,
+        "expected_pair": 1,
+        "expected_rank": 1,
+        "best_pair": 1,
+        "best_score": 1.0,
+        "runner_up_pair": 256,
+        "runner_up_score": 0.8151724137931035,
+        "margin": 0.18482758620689654
+      },
+      {
+        "image_idx": 1,
+        "expected_pair": 2,
+        "expected_rank": 1,
+        "best_pair": 2,
+        "best_score": 1.0,
+        "runner_up_pair": 362,
+        "runner_up_score": 0.8275862068965517,
+        "margin": 0.1724137931034483
+      },
+      {
+        "image_idx": 2,
+        "expected_pair": 3,
+        "expected_rank": 1,
+        "best_pair": 3,
+        "best_score": 1.0,
+        "runner_up_pair": 9,
+        "runner_up_score": 0.8344827586206897,
+        "margin": 0.16551724137931034
+      },
+      {
+        "image_idx": 3,
+        "expected_pair": 4,
+        "expected_rank": 1,
+        "best_pair": 4,
+        "best_score": 1.0,
+        "runner_up_pair": 385,
+        "runner_up_score": 0.8344827586206897,
+        "margin": 0.16551724137931034
+      },
+      {
+        "image_idx": 4,
+        "expected_pair": 5,
+        "expected_rank": 1,
+        "best_pair": 5,
+        "best_score": 1.0,
+        "runner_up_pair": 307,
+        "runner_up_score": 0.8151724137931035,
+        "margin": 0.18482758620689654
+      },
+      {
+        "image_idx": 5,
+        "expected_pair": 6,
+        "expected_rank": 1,
+        "best_pair": 6,
+        "best_score": 1.0,
+        "runner_up_pair": 332,
+        "runner_up_score": 0.8124137931034483,
+        "margin": 0.1875862068965517
+      },
+      {
+        "image_idx": 6,
+        "expected_pair": 7,
+        "expected_rank": 1,
+        "best_pair": 7,
+        "best_score": 1.0,
+        "runner_up_pair": 13,
+        "runner_up_score": 0.8303448275862069,
+        "margin": 0.16965517241379313
+      },
+      {
+        "image_idx": 7,
+        "expected_pair": 8,
+        "expected_rank": 1,
+        "best_pair": 8,
+        "best_score": 1.0,
+        "runner_up_pair": 184,
+        "runner_up_score": 0.8193103448275862,
+        "margin": 0.18068965517241375
+      },
+      {
+        "image_idx": 8,
+        "expected_pair": 9,
+        "expected_rank": 1,
+        "best_pair": 9,
+        "best_score": 1.0,
+        "runner_up_pair": 166,
+        "runner_up_score": 0.8372413793103448,
+        "margin": 0.1627586206896552
+      },
+      {
+        "image_idx": 9,
+        "expected_pair": 10,
+        "expected_rank": 1,
+        "best_pair": 10,
+        "best_score": 1.0,
+        "runner_up_pair": 200,
+        "runner_up_score": 0.8303448275862069,
+        "margin": 0.16965517241379313
+      },
+      {
+        "image_idx": 10,
+        "expected_pair": 11,
+        "expected_rank": 1,
+        "best_pair": 11,
+        "best_score": 1.0,
+        "runner_up_pair": 161,
+        "runner_up_score": 0.8524137931034482,
+        "margin": 0.14758620689655177
+      },
+      {
+        "image_idx": 11,
+        "expected_pair": 12,
+        "expected_rank": 1,
+        "best_pair": 12,
+        "best_score": 1.0,
+        "runner_up_pair": 137,
+        "runner_up_score": 0.8248275862068966,
+        "margin": 0.17517241379310344
+      },
+      {
+        "image_idx": 12,
+        "expected_pair": 13,
+        "expected_rank": 1,
+        "best_pair": 13,
+        "best_score": 1.0,
+        "runner_up_pair": 7,
+        "runner_up_score": 0.8468965517241379,
+        "margin": 0.1531034482758621
+      },
+      {
+        "image_idx": 13,
+        "expected_pair": 14,
+        "expected_rank": 1,
+        "best_pair": 14,
+        "best_score": 1.0,
+        "runner_up_pair": 375,
+        "runner_up_score": 0.8151724137931035,
+        "margin": 0.18482758620689654
+      },
+      {
+        "image_idx": 14,
+        "expected_pair": 15,
+        "expected_rank": 1,
+        "best_pair": 15,
+        "best_score": 1.0,
+        "runner_up_pair": 219,
+        "runner_up_score": 0.8027586206896552,
+        "margin": 0.1972413793103448
+      },
+      {
+        "image_idx": 15,
+        "expected_pair": 16,
+        "expected_rank": 1,
+        "best_pair": 16,
+        "best_score": 1.0,
+        "runner_up_pair": 196,
+        "runner_up_score": 0.8041379310344827,
+        "margin": 0.19586206896551728
+      },
+      {
+        "image_idx": 16,
+        "expected_pair": 17,
+        "expected_rank": 1,
+        "best_pair": 17,
+        "best_score": 1.0,
+        "runner_up_pair": 86,
+        "runner_up_score": 0.8372413793103448,
+        "margin": 0.1627586206896552
+      },
+      {
+        "image_idx": 17,
+        "expected_pair": 18,
+        "expected_rank": 1,
+        "best_pair": 18,
+        "best_score": 1.0,
+        "runner_up_pair": 361,
+        "runner_up_score": 0.8027586206896552,
+        "margin": 0.1972413793103448
+      },
+      {
+        "image_idx": 18,
+        "expected_pair": 19,
+        "expected_rank": 1,
+        "best_pair": 19,
+        "best_score": 1.0,
+        "runner_up_pair": 168,
+        "runner_up_score": 0.8234482758620689,
+        "margin": 0.17655172413793108
+      },
+      {
+        "image_idx": 19,
+        "expected_pair": 20,
+        "expected_rank": 1,
+        "best_pair": 20,
+        "best_score": 1.0,
+        "runner_up_pair": 254,
+        "runner_up_score": 0.8124137931034483,
+        "margin": 0.1875862068965517
+      }
+    ],
+    "kolam29": [
+      {
+        "image_idx": 0,
+        "expected_pair": 1,
+        "expected_rank": 1,
+        "best_pair": 1,
+        "best_score": 1.0,
+        "runner_up_pair": 8,
+        "runner_up_score": 0.7566765578635015,
+        "margin": 0.24332344213649848
+      },
+      {
+        "image_idx": 1,
+        "expected_pair": 2,
+        "expected_rank": 1,
+        "best_pair": 2,
+        "best_score": 1.0,
+        "runner_up_pair": 67,
+        "runner_up_score": 0.7596439169139466,
+        "margin": 0.24035608308605338
+      },
+      {
+        "image_idx": 2,
+        "expected_pair": 3,
+        "expected_rank": 1,
+        "best_pair": 3,
+        "best_score": 1.0,
+        "runner_up_pair": 5,
+        "runner_up_score": 0.7732937685459941,
+        "margin": 0.22670623145400592
+      },
+      {
+        "image_idx": 3,
+        "expected_pair": 4,
+        "expected_rank": 1,
+        "best_pair": 4,
+        "best_score": 1.0,
+        "runner_up_pair": 62,
+        "runner_up_score": 0.7649851632047477,
+        "margin": 0.23501483679525226
+      },
+      {
+        "image_idx": 4,
+        "expected_pair": 5,
+        "expected_rank": 1,
+        "best_pair": 5,
+        "best_score": 1.0,
+        "runner_up_pair": 3,
+        "runner_up_score": 0.7655786350148368,
+        "margin": 0.2344213649851632
+      },
+      {
+        "image_idx": 5,
+        "expected_pair": 6,
+        "expected_rank": 1,
+        "best_pair": 6,
+        "best_score": 1.0,
+        "runner_up_pair": 72,
+        "runner_up_score": 0.7827893175074184,
+        "margin": 0.21721068249258157
+      },
+      {
+        "image_idx": 6,
+        "expected_pair": 7,
+        "expected_rank": 1,
+        "best_pair": 7,
+        "best_score": 1.0,
+        "runner_up_pair": 9,
+        "runner_up_score": 0.7679525222551928,
+        "margin": 0.23204747774480716
+      },
+      {
+        "image_idx": 7,
+        "expected_pair": 8,
+        "expected_rank": 1,
+        "best_pair": 8,
+        "best_score": 1.0,
+        "runner_up_pair": 74,
+        "runner_up_score": 0.7916913946587537,
+        "margin": 0.2083086053412463
+      },
+      {
+        "image_idx": 8,
+        "expected_pair": 9,
+        "expected_rank": 1,
+        "best_pair": 9,
+        "best_score": 1.0,
+        "runner_up_pair": 7,
+        "runner_up_score": 0.7459940652818992,
+        "margin": 0.25400593471810085
+      },
+      {
+        "image_idx": 9,
+        "expected_pair": 10,
+        "expected_rank": 1,
+        "best_pair": 10,
+        "best_score": 1.0,
+        "runner_up_pair": 14,
+        "runner_up_score": 0.7578635014836795,
+        "margin": 0.24213649851632046
+      }
+    ],
+    "kolam109": [
+      {
+        "image_idx": 0,
+        "expected_pair": 1,
+        "expected_rank": 1,
+        "best_pair": 1,
+        "best_score": 0.9954134231011993,
+        "runner_up_pair": 78,
+        "runner_up_score": 0.6985062066063539,
+        "margin": 0.2969072164948454
+      },
+      {
+        "image_idx": 1,
+        "expected_pair": 2,
+        "expected_rank": 1,
+        "best_pair": 2,
+        "best_score": 0.9944035346097202,
+        "runner_up_pair": 22,
+        "runner_up_score": 0.7023353671365453,
+        "margin": 0.2920681674731749
+      },
+      {
+        "image_idx": 2,
+        "expected_pair": 3,
+        "expected_rank": 1,
+        "best_pair": 3,
+        "best_score": 0.9946980854197349,
+        "runner_up_pair": 99,
+        "runner_up_score": 0.6964864296233958,
+        "margin": 0.2982116557963391
+      },
+      {
+        "image_idx": 3,
+        "expected_pair": 4,
+        "expected_rank": 1,
+        "best_pair": 4,
+        "best_score": 0.9944876919840101,
+        "runner_up_pair": 87,
+        "runner_up_score": 0.7064590784767515,
+        "margin": 0.2880286135072586
+      },
+      {
+        "image_idx": 4,
+        "expected_pair": 5,
+        "expected_rank": 1,
+        "best_pair": 5,
+        "best_score": 0.9954975804754892,
+        "runner_up_pair": 22,
+        "runner_up_score": 0.7050284031138229,
+        "margin": 0.29046917736166633
+      }
+    ],
+    "synthetic_positive_control": {
+      "best_pair": 1,
+      "best_score": 1.0,
+      "runner_up_pair": 256,
+      "runner_up_score": 0.8248275862068966,
+      "margin": 0.17517241379310344,
+      "passed": true
+    },
+    "black_image_control": {
+      "mean_score": 0.0,
+      "passed": true
+    }
+  },
+  "traversal_reproduction": {
+    "kolam19": {
+      "total_tested": 400,
+      "exact_matches": 400,
+      "exact_reproduction_rate": 1.0,
+      "failures": []
+    },
+    "kolam29": {
+      "total_tested": 100,
+      "exact_matches": 100,
+      "exact_reproduction_rate": 1.0,
+      "failures": []
+    },
+    "kolam109": {
+      "total_tested": 100,
+      "exact_matches": 100,
+      "exact_reproduction_rate": 1.0,
+      "failures": []
+    }
+  },
+  "ambiguity_rate": {
+    "total_candidate_edges": 2324,
+    "ambiguous_count": 0,
+    "ambiguity_rate": 0.0,
+    "min_distance_lattice_units": 0.11180329322814941,
+    "passed": true
+  },
+  "v4_invariance": {
+    "kolam19": {
+      "num_edges": 724,
+      "v4_invariant": true,
+      "negative_control_passed": true
+    },
+    "kolam29": {
+      "num_edges": 1684,
+      "v4_invariant": true,
+      "negative_control_passed": true
+    },
+    "kolam109": {
+      "num_edges": 23764,
+      "v4_invariant": true,
+      "negative_control_passed": true
+    }
+  }
+}

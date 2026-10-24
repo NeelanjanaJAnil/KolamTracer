@@ -13,7 +13,7 @@ class CompositeLoss(nn.Module):
             
         self.pen_criterion = nn.BCEWithLogitsLoss(reduction='none')
         
-    def forward(self, delta_preds, eos_logits, target_coords, target_pen, pad_mask, seq_len):
+    def forward(self, delta_preds, eos_logits, target_coords, target_pen, pad_mask, seq_len, global_step=None, shared_trunk_param=None):
         B, T, _ = delta_preds.shape
         
         # Calculate precise per-step delta targets (not absolute coordinates)
@@ -51,8 +51,30 @@ class CompositeLoss(nn.Module):
             closed_loop_loss += F.mse_loss(end_p, start_p)
         closed_loop_loss = closed_loop_loss / B
         
-        total_loss = coord_loss + 0.1 * eos_loss + 0.01 * curv_loss + 0.05 * closed_loop_loss
+        # Apply configurable weights
+        c_w = self.config.coord_weight
+        e_w = self.config.eos_weight
+        cur_w = self.config.curvature_weight
+        l_w = self.config.closed_loop_weight
         
+        total_loss = (c_w * coord_loss) + (e_w * eos_loss) + (cur_w * curv_loss) + (l_w * closed_loop_loss)
+        
+        if self.config.diagnostic_mode and global_step is not None and global_step <= 500 and shared_trunk_param is not None:
+            if global_step % 50 == 0 or global_step == 1:
+                # Compute gradients w.r.t the shared trunk for each scaled component
+                def get_grad_norm(loss_term):
+                    if loss_term.item() == 0: return 0.0
+                    grads = torch.autograd.grad(loss_term, shared_trunk_param, retain_graph=True, allow_unused=True)
+                    return torch.norm(grads[0]).item() if grads[0] is not None else 0.0
+                
+                c_grad = get_grad_norm(c_w * coord_loss)
+                e_grad = get_grad_norm(e_w * eos_loss)
+                cur_grad = get_grad_norm(cur_w * curv_loss)
+                l_grad = get_grad_norm(l_w * closed_loop_loss)
+                
+                print(f"[Loss Diag - Step {global_step}] RAW VALUES | Coord: {coord_loss.item():.6f}, EOS: {eos_loss.item():.4f}, Curv: {curv_loss.item():.4f}, Loop: {closed_loop_loss.item():.4f}")
+                print(f"[Loss Diag - Step {global_step}] GRAD NORMS | Coord: {c_grad:.6f}, EOS: {e_grad:.6f}, Curv: {cur_grad:.6f}, Loop: {l_grad:.6f}")
+                
         return total_loss, {
             'coord_loss': coord_loss.item(),
             'eos_loss': eos_loss.item(),

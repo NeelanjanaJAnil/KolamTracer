@@ -126,11 +126,14 @@ class CausalPathDecoder(nn.Module):
         return delta_coords, eos_logits
         
     @torch.no_grad()
-    def autoregressive_generate(self, memory, max_len):
+    def autoregressive_generate(self, memory, max_len, start_coords=None):
+        if start_coords is None:
+            raise ValueError("start_coords must be explicitly provided. Defaulting to (0,0) causes out-of-distribution embeddings and halts generation fidelity.")
+            
         B = memory.shape[0]
         device = memory.device
         
-        curr_coords = torch.zeros((B, 1, 2), device=device)
+        curr_coords = start_coords.clone().to(device)
         curr_pen = torch.zeros((B, 1), dtype=torch.long, device=device)
         
         for t in range(max_len - 1):
