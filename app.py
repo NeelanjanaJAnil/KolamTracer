@@ -5,7 +5,7 @@ Clean, intuitive interface:
   - Left: Uploaded Kolam image
   - Right:
       * Topological Homology Invariants (Betti numbers beta_0, beta_1 across mask, B-spline, and Fourier)
-      * Analytical Fourier Algebraic Equations in LaTeX (x(t) and y(t) continuous harmonic series)
+      * Analytical Fourier Algebraic Equations in clean wrapped LaTeX (x(t) and y(t))
   - Reconstruction Canvas: 3-Way Visual Comparison
       1. Stage 1/2: Thinned Skeleton Mask
       2. B-Spline Closed Loop Curve
@@ -73,19 +73,9 @@ CUSTOM_CSS = """
         color: #ff9933;
         border: 1px solid rgba(255, 153, 51, 0.4);
     }
-    .badge-green {
-        background: rgba(46, 213, 115, 0.15);
-        color: #2ed573;
-        border: 1px solid rgba(46, 213, 115, 0.4);
-    }
-    .badge-info {
-        background: rgba(112, 161, 255, 0.15);
-        color: #70a1ff;
-        border: 1px solid rgba(112, 161, 255, 0.4);
-    }
     .stLatex {
         background-color: #12121f;
-        padding: 12px;
+        padding: 14px;
         border-radius: 8px;
         border-left: 3px solid #ff9933;
         margin-bottom: 12px;
@@ -115,7 +105,23 @@ def load_benchmark_metrics():
 # -------------------------------------------------------------
 # UNIVERSAL TRACER (WORKS ON ANY IMAGE)
 # -------------------------------------------------------------
-def trace_any_image(img_pil, num_harmonics=10, max_points=1500):
+def format_multiline_latex(terms, var_name="x(t)", terms_per_line=3):
+    if not terms:
+        return f"{var_name} = 0"
+    lines = []
+    first_line = f"{var_name} = " + terms[0]
+    curr_line = ""
+    for i, term in enumerate(terms[1:], start=1):
+        prefix = " + " if not term.startswith("-") else " "
+        curr_line += prefix + term
+        if i % terms_per_line == 0 or i == len(terms) - 1:
+            lines.append(curr_line)
+            curr_line = ""
+            
+    latex_body = "\\begin{aligned}\n" + first_line + " \\\\\n" + " \\\\\n".join(["&" + l for l in lines]) + "\n\\end{aligned}"
+    return latex_body
+
+def trace_any_image(img_pil, num_harmonics=20):
     """
     Universally extracts the skeleton and computes analytical continuous
     Fourier and B-spline equations for ANY uploaded image.
@@ -143,19 +149,19 @@ def trace_any_image(img_pil, num_harmonics=10, max_points=1500):
     tree = KDTree(pts)
     curr = pts[curr_idx]
     
-    limit = min(max_points, len(pts))
-    while len(ordered_indices) < limit:
-        dists, indices = tree.query(curr, k=min(15, len(pts)))
+    total_pts = len(pts)
+    while len(ordered_indices) < total_pts:
+        dists, indices = tree.query(curr, k=min(20, total_pts))
         next_idx = None
         for d, idx in zip(dists, indices):
-            if not visited[idx] and d < 30.0:
+            if not visited[idx] and d < 35.0:
                 next_idx = idx
                 break
         if next_idx is None:
             unvisited = np.where(~visited)[0]
             if len(unvisited) == 0:
                 break
-            dists_unv, idxs_unv = tree.query(curr, k=min(50, len(pts)))
+            dists_unv, idxs_unv = tree.query(curr, k=min(60, total_pts))
             found = False
             for idx in idxs_unv:
                 if not visited[idx]:
@@ -179,9 +185,10 @@ def trace_any_image(img_pil, num_harmonics=10, max_points=1500):
     Z = np.fft.fft(z)
     
     Z_filtered = np.zeros_like(Z)
-    Z_filtered[:num_harmonics] = Z[:num_harmonics]
-    if num_harmonics > 0:
-        Z_filtered[-num_harmonics+1:] = Z[-num_harmonics+1:]
+    H = min(num_harmonics, N // 2)
+    Z_filtered[:H] = Z[:H]
+    if H > 0:
+        Z_filtered[-H+1:] = Z[-H+1:]
         
     t_fine = np.linspace(0, 2*np.pi, 1000)
     x_fourier = np.zeros_like(t_fine)
@@ -206,14 +213,11 @@ def trace_any_image(img_pil, num_harmonics=10, max_points=1500):
                 x_terms.append(f"({A:.2f}\\cos({n}t) - {B:.2f}\\sin({n}t))")
                 y_terms.append(f"({A:.2f}\\sin({n}t) + {B:.2f}\\cos({n}t))")
                 
-    if not x_terms: x_terms = ["0"]
-    if not y_terms: y_terms = ["0"]
-    
-    x_latex = "x(t) = " + " + ".join(x_terms).replace("+ -", "- ")
-    y_latex = "y(t) = " + " + ".join(y_terms).replace("+ -", "- ")
+    x_latex = format_multiline_latex(x_terms, "x(t)", terms_per_line=3)
+    y_latex = format_multiline_latex(y_terms, "y(t)", terms_per_line=3)
     
     # 5. Parametric Cubic B-Spline
-    step = max(1, len(x_raw) // 120)
+    step = max(1, len(x_raw) // 150)
     sub_x, sub_y = x_raw[::step], y_raw[::step]
     if not (np.isclose(sub_x[0], sub_x[-1]) and np.isclose(sub_y[0], sub_y[-1])):
         sub_x = np.append(sub_x, sub_x[0])
@@ -252,11 +256,8 @@ def generate_svg(x_pts, y_pts, progress_frac=1.0, width=500, height=500):
     span_x = max(1.0, max_x - min_x)
     span_y = max(1.0, max_y - min_y)
     
-    # Normalize to SVG dimensions with padding
-    pad = 20
-    sc_x = (width - 2 * pad) / span_x
-    sc_y = (height - 2 * pad) / span_y
-    sc = min(sc_x, sc_y)
+    pad = 25
+    sc = min((width - 2 * pad) / span_x, (height - 2 * pad) / span_y)
     
     px = pad + (sub_x - min_x) * sc
     py = pad + (sub_y - min_y) * sc
@@ -286,8 +287,12 @@ def main():
         unsafe_allow_html=True
     )
     
-    # Clean File Uploader
-    uploaded_file = st.file_uploader("Upload Kolam Image (PNG / JPG / JPEG)", type=['png', 'jpg', 'jpeg'])
+    # Upload & Tuning Bar
+    c_up1, c_up2 = st.columns([3, 1])
+    with c_up1:
+        uploaded_file = st.file_uploader("Upload Kolam Image (PNG / JPG / JPEG)", type=['png', 'jpg', 'jpeg'])
+    with c_up2:
+        harmonics = st.slider("Harmonic Detail Terms", min_value=10, max_value=60, value=25, step=5)
     
     # Resolve Image
     base_dir = os.path.dirname(__file__)
@@ -300,13 +305,12 @@ def main():
         image = Image.open(default_sample)
         caption_text = "Default Sample (Upload your own photo above)"
     else:
-        # Fallback synthetic
         image = Image.new('RGB', (400, 400), color=(15, 15, 25))
         caption_text = "Blank Canvas"
         
     # Run Universal Trace Pipeline
     with st.spinner("Extracting structural skeleton and fitting parametric equations..."):
-        res = trace_any_image(image, num_harmonics=10)
+        res = trace_any_image(image, num_harmonics=harmonics)
         
     betti = res['betti']
     
@@ -328,7 +332,6 @@ def main():
         st.latex(res['x_latex'])
         st.latex(res['y_latex'])
         
-        # Action Buttons
         eq_json = json.dumps({"x_equation": res['x_latex'], "y_equation": res['y_latex'], "betti_invariants": betti}, indent=2)
         st.download_button("📥 Download Equations JSON", eq_json, file_name="kolam_equations.json", mime="application/json")
         
@@ -350,9 +353,10 @@ def main():
     
     # 2. B-Spline Closed Loop Curve
     axes[1].set_facecolor('#12121f')
-    axes[1].plot(res['x_spline'], res['y_spline'], color='#70a1ff', linewidth=2.2)
+    axes[1].plot(res['x_spline'], res['y_spline'], color='#70a1ff', linewidth=2.0)
     axes[1].set_title("B-Spline Closed Loop Curve", color='#f7f3e9', fontsize=12, pad=10)
     axes[1].invert_yaxis()
+    axes[1].set_aspect('equal')
     axes[1].grid(True, color='#222238', linestyle='--', alpha=0.6)
     axes[1].tick_params(colors='#a4b0be')
     for spine in axes[1].spines.values():
@@ -360,9 +364,10 @@ def main():
         
     # 3. Fourier Harmonic Waveforms
     axes[2].set_facecolor('#12121f')
-    axes[2].plot(res['x_fourier'], res['y_fourier'], color='#ff9933', linewidth=2.2)
-    axes[2].set_title("Fourier Descriptor Harmonic Waveforms", color='#f7f3e9', fontsize=12, pad=10)
+    axes[2].plot(res['x_fourier'], res['y_fourier'], color='#ff9933', linewidth=2.0)
+    axes[2].set_title(f"Fourier Descriptor ({harmonics} Harmonics)", color='#f7f3e9', fontsize=12, pad=10)
     axes[2].invert_yaxis()
+    axes[2].set_aspect('equal')
     axes[2].grid(True, color='#222238', linestyle='--', alpha=0.6)
     axes[2].tick_params(colors='#a4b0be')
     for spine in axes[2].spines.values():
@@ -386,10 +391,11 @@ def main():
         fig_prog, ax_prog = plt.subplots(figsize=(4.5, 4.5), dpi=100)
         fig_prog.patch.set_facecolor('#0b0b14')
         ax_prog.set_facecolor('#12121f')
-        ax_prog.plot(res['x_fourier'][:n_pts], res['y_fourier'][:n_pts], color='#ff9933', linewidth=2.5)
+        ax_prog.plot(res['x_fourier'][:n_pts], res['y_fourier'][:n_pts], color='#ff9933', linewidth=2.2)
         ax_prog.scatter(res['x_fourier'][0], res['y_fourier'][0], color='#2ed573', s=45, label='Start Node', zorder=5)
         ax_prog.scatter(res['x_fourier'][n_pts-1], res['y_fourier'][n_pts-1], color='#ff4757', s=40, label='Current Head', zorder=5)
         ax_prog.invert_yaxis()
+        ax_prog.set_aspect('equal')
         ax_prog.axis('off')
         ax_prog.legend(loc='lower left', facecolor='#151522', edgecolor='#222238', labelcolor='#f7f3e9', fontsize=9)
         plt.tight_layout(pad=0)
