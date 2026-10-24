@@ -7,7 +7,25 @@ temp_extract/
 
 # Checkpoints and models
 *.pt
+*.pth
+*.ckpt
+*.onnx
 edge_run/checkpoints/
+
+# Backups, diagnostics, and scratch
+backup_before_ui_fix/
+diagnostic_*.py
+crop_center_19.png
+generate_trajectory_plots.py
+training_log.csv
+sample_data/images/mandala_sample.png
+*.backup
+*.bak
+
+# Environment & Secrets
+.env
+.env.*
+*.secret
 
 # Python cache & logs
 __pycache__/
