@@ -460,7 +460,7 @@ def run_blind_inference_pipeline(im_input, family='kolam19', auto_align=True, th
 # -------------------------------------------------------------
 # SVG & MOTIFS RENDERERS
 # -------------------------------------------------------------
-def generate_progressive_svg(pts_pix, progress_frac=1.0, width=450, height=450):
+def generate_progressive_svg(pts_pix, progress_frac=1.0, width=400, height=400, canvas_dim=500):
     n = max(2, int(len(pts_pix) * progress_frac))
     sub_pts = pts_pix[:n]
     path_d = f"M {sub_pts[0, 0]:.1f} {sub_pts[0, 1]:.1f} "
@@ -468,10 +468,10 @@ def generate_progressive_svg(pts_pix, progress_frac=1.0, width=450, height=450):
         path_d += f"L {sub_pts[i, 0]:.1f} {sub_pts[i, 1]:.1f} "
         
     svg = f"""
-    <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" style="background:#0b0b14; border-radius:10px; border:1px solid #222238;">
+    <svg width="{width}" height="{height}" viewBox="0 0 {canvas_dim} {canvas_dim}" xmlns="http://www.w3.org/2000/svg" style="background:#0b0b14; border-radius:10px; border:1px solid #222238;">
       <path d="{path_d}" stroke="#ff9933" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="{sub_pts[0, 0]:.1f}" cy="{sub_pts[0, 1]:.1f}" r="5" fill="#2ed573" />
-      <circle cx="{sub_pts[-1, 0]:.1f}" cy="{sub_pts[-1, 1]:.1f}" r="4" fill="#ff4757" />
+      <circle cx="{sub_pts[0, 0]:.1f}" cy="{sub_pts[0, 1]:.1f}" r="6" fill="#2ed573" />
+      <circle cx="{sub_pts[-1, 0]:.1f}" cy="{sub_pts[-1, 1]:.1f}" r="5" fill="#ff4757" />
     </svg>
     """
     return svg
@@ -671,7 +671,7 @@ def main():
             st.pyplot(fig_prog)
             plt.close(fig_prog)
         with c_sl2:
-            svg_code = generate_progressive_svg(pts_pix, progress, width=400, height=400)
+            svg_code = generate_progressive_svg(pts_pix, progress, width=400, height=400, canvas_dim=AFFINE_PARAMS[family]['canvas_dim'])
             st.components.v1.html(svg_code, height=410)
             st.download_button(
                 "📥 Download Progressive SVG",
