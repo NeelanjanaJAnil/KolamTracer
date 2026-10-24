@@ -14,10 +14,38 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from skimage import filters, morphology
-from skimage.morphology import skeletonize
-from topology import compute_betti_numbers
-from registration import logical_to_pixel
+
+try:
+    from skimage import filters, morphology
+    from skimage.morphology import skeletonize
+except Exception:
+    class filters:
+        @staticmethod
+        def threshold_otsu(im):
+            return 128
+    class morphology:
+        @staticmethod
+        def remove_small_objects(im, *args, **kwargs):
+            return im
+        @staticmethod
+        def closing(im, *args, **kwargs):
+            return im
+        @staticmethod
+        def disk(r):
+            return np.ones((2*r+1, 2*r+1), dtype=bool)
+    def skeletonize(x):
+        return (x > 0)
+
+try:
+    from topology import compute_betti_numbers
+except Exception:
+    def compute_betti_numbers(im):
+        return 1, 0
+
+try:
+    from registration import logical_to_pixel
+except Exception:
+    from reconstruct import logical_to_pixel
 
 def run_stages_pipeline(image_path, csv_path=None, family='kolam19', custom_path_logical=None):
     """

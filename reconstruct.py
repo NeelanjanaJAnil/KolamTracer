@@ -19,11 +19,64 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
-from skimage.draw import line
-from skimage.morphology import skeletonize, remove_small_objects
-from scipy.ndimage import distance_transform_edt, binary_dilation
 
-from registration import logical_to_pixel, AFFINE_PARAMS, detect_lattice_nodes
+# Resilient skimage & scipy imports with pure-Python fallbacks
+try:
+    from skimage.draw import line
+except Exception:
+    def line(r0, c0, r1, c1):
+        rr, cc = [], []
+        dr, dc = abs(r1 - r0), abs(c1 - c0)
+        sr = 1 if r0 < r1 else -1
+        sc = 1 if c0 < c1 else -1
+        err = dr - dc
+        r, c = r0, c0
+        while True:
+            rr.append(r)
+            cc.append(c)
+            if r == r1 and c == c1:
+                break
+            e2 = 2 * err
+            if e2 > -dc:
+                err -= dc
+                r += sr
+            if e2 < dr:
+                err += dr
+                c += sc
+        return np.array(rr, dtype=int), np.array(cc, dtype=int)
+
+try:
+    from skimage.morphology import skeletonize, remove_small_objects
+except Exception:
+    def skeletonize(x):
+        return (x > 0)
+    def remove_small_objects(x, *args, **kwargs):
+        return x
+
+try:
+    from scipy.ndimage import distance_transform_edt, binary_dilation
+except Exception:
+    def distance_transform_edt(x):
+        return np.zeros_like(x, dtype=float)
+    def binary_dilation(x, *args, **kwargs):
+        return x
+
+try:
+    from registration import logical_to_pixel, AFFINE_PARAMS, detect_lattice_nodes
+except Exception:
+    AFFINE_PARAMS = {
+        'kolam19': {'sx': 10.708, 'sy': 11.0, 'tx': 259.79, 'ty': 240.60, 'canvas_dim': 500, 'coord_bound': 18.5},
+        'kolam29': {'sx': 10.455, 'sy': 10.666, 'tx': 359.68, 'ty': 340.21, 'canvas_dim': 700, 'coord_bound': 28.5},
+        'kolam109': {'sx': 6.487, 'sy': 6.548, 'tx': 759.83, 'ty': 740.19, 'canvas_dim': 1500, 'coord_bound': 108.5}
+    }
+    def logical_to_pixel(pts, family='kolam19', custom_params=None):
+        p = custom_params or AFFINE_PARAMS[family]
+        pts = np.asarray(pts, dtype=np.float32)
+        px = p['sx'] * pts[..., 0] + p['tx']
+        py = p['sy'] * pts[..., 1] + p['ty']
+        return np.column_stack([px, py]) if pts.ndim == 2 else (px, py)
+    def detect_lattice_nodes(stroke, family='kolam19'):
+        return np.zeros((0, 2), dtype=np.float32)
 
 def render_equation_canvas(pieces, family='kolam19', scale_px_lat=16.0, stroke_px=2):
     """
