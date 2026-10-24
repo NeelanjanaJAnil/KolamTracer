@@ -4,8 +4,8 @@ Universal Kolam Equation Engine & Artsy Mathematical Studio.
 Fulfills the complete project specifications:
   1. Universal Image Understanding: Processes ANY uploaded image (white chalk on floor, black ink, rangoli, pulli).
   2. Dual Equations: Generates BOTH Parametric (x(t), y(t)) AND Algebraic implicit forms for every piece.
-  3. Regeneration & Verification: Strictly redraws the kolam from the equations and computes F1 accuracy overlay.
-  4. L-System / Re-Pair Grammar Reduction: Compresses repetitive sequences into compact production rules (3-4x reduction).
+  3. Regeneration & Verification: Strictly redraws the kolam from the equations without ghost jump-lines.
+  4. L-System / Re-Pair Grammar Reduction: Compresses repetitive sequences into compact production rules.
   5. Clean, Simple, Artsy UI: Temple night (#0b0b14) theme, warm saffron glow (#ff9933), smooth progressive slider & SVG export.
 """
 
@@ -25,6 +25,7 @@ from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
 from skimage.morphology import skeletonize, remove_small_objects
 from skimage.filters import threshold_otsu
+from skimage.measure import find_contours
 from skimage.draw import line as draw_line
 
 from primitives import segment_path_into_primitives, format_piece_equations, repair_grammar, expand_grammar
@@ -117,105 +118,80 @@ def load_benchmark_metrics():
     return p0, p1, p2
 
 # -------------------------------------------------------------
-# UNIVERSAL KOLAM ENGINE (PILLARS 1, 2, 3, 4)
+# CLEAN MULTI-STROKE RECONSTRUCTION ENGINE
 # -------------------------------------------------------------
 def process_kolam_image(img_pil):
     """
-    1. Extracts skeleton from ANY image.
-    2. Traces ordered smooth path.
-    3. Fits Parametric & Algebraic equations (lines, arcs, beziers).
-    4. Regenerates the image strictly from the equations.
-    5. Computes F1 verification score.
-    6. Induces L-System Re-Pair compressed grammar.
+    Universally extracts strokes from ANY image, fitting parametric & algebraic
+    equations without ghost jump-lines across disconnected components.
     """
     gray = np.array(img_pil.convert('L'))
     h, w = gray.shape
     
-    # 1. Otsu thresholding with polarity check
+    # 1. Otsu thresholding with background polarity check
     th = threshold_otsu(gray)
     corners = [gray[0, 0], gray[0, -1], gray[-1, 0], gray[-1, -1]]
     binary = (gray > th) if np.mean(corners) < th else (gray < th)
     skel = skeletonize(remove_small_objects(binary, max_size=16))
     
-    pts = np.argwhere(skel) # (y, x)
-    if len(pts) == 0:
-        pts = np.array([[h//4, w//4], [h//4, 3*w//4], [3*h//4, 3*w//4], [3*h//4, w//4], [h//4, w//4]])
+    # 2. Extract distinct stroke contours (never connect disconnected strokes!)
+    raw_contours = find_contours(binary.astype(float), 0.5)
+    # Keep contours with at least 15 points
+    contours = [c for c in raw_contours if len(c) >= 15]
+    if not contours:
+        # Fallback to single center box
+        contours = [np.array([[h//4, w//4], [h//4, 3*w//4], [3*h//4, 3*w//4], [3*h//4, w//4], [h//4, w//4]])]
         
-    # 2. Nearest-Neighbor walk for full skeleton coverage
-    visited = np.zeros(len(pts), dtype=bool)
-    curr_idx = 0
-    ordered = [curr_idx]
-    visited[curr_idx] = True
-    tree = KDTree(pts)
-    curr = pts[curr_idx]
-    
-    total_pts = len(pts)
-    while len(ordered) < total_pts:
-        dists, idxs = tree.query(curr, k=min(20, total_pts))
-        next_idx = None
-        for d, idx in zip(dists, idxs):
-            if not visited[idx] and d < 35.0:
-                next_idx = idx
-                break
-        if next_idx is None:
-            unv = np.where(~visited)[0]
-            if len(unv) == 0:
-                break
-            dists_unv, idxs_unv = tree.query(curr, k=min(60, total_pts))
-            found = False
-            for idx in idxs_unv:
-                if not visited[idx]:
-                    next_idx = idx
-                    found = True
-                    break
-            if not found:
-                next_idx = unv[0]
-        visited[next_idx] = True
-        ordered.append(next_idx)
-        curr = pts[next_idx]
-        
-    path_full = pts[ordered] # (y, x)
-    
-    # Smooth sub-sampled path for geometric primitive fitting
-    step = max(1, len(path_full) // 500)
-    smooth_path = np.column_stack([path_full[::step, 1], path_full[::step, 0]]).astype(float) # (x, y)
-    
-    # 3. Fit Parametric & Algebraic Pieces
-    tol_fit = max(1.5, min(w, h) / 180.0)
-    pieces = segment_path_into_primitives(smooth_path, tol=tol_fit)
-    if not pieces:
-        # Fallback line
-        pieces = [{'type': 'line', 'p0': smooth_path[0], 'p1': smooth_path[-1], 'start_idx': 0, 'end_idx': len(smooth_path)-1}]
-        
-    # 4. Strictly Regenerate Image from Equations (Canvas of identical dimension)
     canvas_regen = np.zeros((h, w), dtype=bool)
-    dense_trace_x, dense_trace_y = [], []
+    all_pieces = []
+    stroke_paths = [] # list of (x, y) arrays per stroke
     
-    for p in pieces:
-        ptype = p['type']
-        if ptype == 'line':
-            p0, p1 = np.array(p['p0']), np.array(p['p1'])
-            t = np.linspace(0, 1, 15)
-            pts_p = p0 + np.outer(t, p1 - p0)
-        elif ptype == 'arc':
-            t = np.linspace(p['th0'], p['th1'], 20)
-            pts_p = np.column_stack([p['h'] + p['r']*np.cos(t), p['k'] + p['r']*np.sin(t)])
-        else: # bezier
-            P0, P1, P2, P3 = np.array(p['P0']), np.array(p['P1']), np.array(p['P2']), np.array(p['P3'])
-            t = np.linspace(0, 1, 20)[:, None]
-            pts_p = (1-t)**3 * P0 + 3*(1-t)**2*t * P1 + 3*(1-t)*t**2 * P2 + t**3 * P3
+    tol_fit = max(1.2, min(w, h) / 200.0)
+    
+    for c in contours:
+        # c is (y, x), convert to (x, y)
+        pts_xy = np.column_stack([c[:, 1], c[:, 0]]).astype(float)
+        # Adaptive smoothing step
+        step = max(1, len(pts_xy) // 50)
+        sub_pts = pts_xy[::step]
+        if len(sub_pts) < 4:
+            sub_pts = pts_xy
             
-        px = np.clip(np.round(pts_p[:, 0]).astype(int), 0, w - 1)
-        py = np.clip(np.round(pts_p[:, 1]).astype(int), 0, h - 1)
-        dense_trace_x.extend(pts_p[:, 0])
-        dense_trace_y.extend(pts_p[:, 1])
+        pieces = segment_path_into_primitives(sub_pts, tol=tol_fit)
+        if not pieces:
+            pieces = [{'type': 'line', 'p0': sub_pts[0], 'p1': sub_pts[-1], 'start_idx': 0, 'end_idx': len(sub_pts)-1}]
+            
+        all_pieces.extend(pieces)
         
-        for j in range(len(px) - 1):
-            rr, cc = draw_line(py[j], px[j], py[j+1], px[j+1])
-            valid = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
-            canvas_regen[rr[valid], cc[valid]] = True
+        # Render this stroke strictly from its equations onto the canvas
+        stroke_x, stroke_y = [], []
+        for p in pieces:
+            ptype = p['type']
+            if ptype == 'line':
+                p0, p1 = np.array(p['p0']), np.array(p['p1'])
+                t = np.linspace(0, 1, 10)
+                pts_p = p0 + np.outer(t, p1 - p0)
+            elif ptype == 'arc':
+                t = np.linspace(p['th0'], p['th1'], 15)
+                pts_p = np.column_stack([p['h'] + p['r']*np.cos(t), p['k'] + p['r']*np.sin(t)])
+            else: # bezier
+                P0, P1, P2, P3 = np.array(p['P0']), np.array(p['P1']), np.array(p['P2']), np.array(p['P3'])
+                t = np.linspace(0, 1, 15)[:, None]
+                pts_p = (1-t)**3 * P0 + 3*(1-t)**2*t * P1 + 3*(1-t)*t**2 * P2 + t**3 * P3
+                
+            px = np.clip(np.round(pts_p[:, 0]).astype(int), 0, w - 1)
+            py = np.clip(np.round(pts_p[:, 1]).astype(int), 0, h - 1)
+            stroke_x.extend(pts_p[:, 0])
+            stroke_y.extend(pts_p[:, 1])
             
-    # 5. Overlap Verification Metrics (Strict mathematical validation against original skeleton)
+            for j in range(len(px) - 1):
+                rr, cc = draw_line(py[j], px[j], py[j+1], px[j+1])
+                valid = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+                canvas_regen[rr[valid], cc[valid]] = True
+                
+        stroke_paths.append((np.array(stroke_x), np.array(stroke_y)))
+        
+    # 3. Overlap Verification Metrics (strictly against skeleton)
     dt_skel = distance_transform_edt(~skel)
     dt_regen = distance_transform_edt(~canvas_regen)
     
@@ -228,37 +204,37 @@ def process_kolam_image(img_pil):
     f1 = float(2 * prec * rec / max(1e-6, prec + rec))
     chamfer = float(0.5 * (np.mean(dt_skel[y_r, x_r]) + np.mean(dt_regen[y_s, x_s]))) if (len(y_r) > 0 and len(y_s) > 0) else 99.0
     
-    # 6. L-System / Re-Pair Grammar Compression
+    # 4. L-System Grammar Induction over Pieces
     tokens = []
-    for p in pieces:
+    for p in all_pieces:
         p0 = np.array(p.get('p0', p.get('P0', [0, 0])))
         p1 = np.array(p.get('p1', p.get('P3', [0, 0])))
-        d = int(round(np.linalg.norm(p1 - p0) / max(1.0, min(w, h) / 30.0)))
+        d = int(round(np.linalg.norm(p1 - p0) / max(1.0, min(w, h) / 40.0)))
         tokens.append(f"{p['type'][0].upper()}{d}")
         
     axiom, rules = repair_grammar(tokens)
     comp_ratio = len(tokens) / max(1, len(axiom))
     
-    # 7. Orbit / Symmetry Representatives
-    # Under quadrant reflection relative to bounding box center
+    # 5. Orbit / Symmetry Representatives
     cx, cy = w / 2.0, h / 2.0
     orbit_reps = []
-    for p in pieces:
+    for p in all_pieces:
         p_mid = np.array(p.get('p0', p.get('P0', [0, 0])))
         if p_mid[0] >= cx and p_mid[1] >= cy:
             orbit_reps.append(p)
     if not orbit_reps:
-        orbit_reps = pieces[:max(1, len(pieces) // 4)]
+        orbit_reps = all_pieces[:max(1, len(all_pieces) // 4)]
         
-    # 8. Topological Homology Invariants
+    # 6. Topological Homology
     b0_orig, b1_orig = compute_betti_numbers(skel)
     b0_reg, b1_reg = compute_betti_numbers(canvas_regen)
     
     return {
         'skel': skel,
         'canvas_regen': canvas_regen,
-        'pieces': pieces,
+        'pieces': all_pieces,
         'orbit_reps': orbit_reps,
+        'stroke_paths': stroke_paths,
         'f1': f1,
         'chamfer': chamfer,
         'prec': prec,
@@ -267,38 +243,40 @@ def process_kolam_image(img_pil):
         'axiom': axiom,
         'rules': rules,
         'comp_ratio': comp_ratio,
-        'dense_trace_x': np.array(dense_trace_x),
-        'dense_trace_y': np.array(dense_trace_y),
         'b0_orig': b0_orig, 'b1_orig': b1_orig,
         'b0_reg': b0_reg, 'b1_reg': b1_reg,
         'img_w': w, 'img_h': h
     }
 
-def generate_svg(x_pts, y_pts, progress_frac=1.0, width=500, height=500):
-    n = max(2, int(len(x_pts) * progress_frac))
-    sub_x = x_pts[:n]
-    sub_y = y_pts[:n]
+def generate_multi_stroke_svg(stroke_paths, progress_frac=1.0, width=500, height=500):
+    total_strokes = len(stroke_paths)
+    num_to_draw = max(1, int(total_strokes * progress_frac))
     
-    min_x, max_x = np.min(x_pts), np.max(x_pts)
-    min_y, max_y = np.min(y_pts), np.max(y_pts)
+    # Bounding box
+    all_x = np.concatenate([sx for sx, sy in stroke_paths]) if stroke_paths else [0, 1]
+    all_y = np.concatenate([sy for sx, sy in stroke_paths]) if stroke_paths else [0, 1]
+    min_x, max_x = np.min(all_x), np.max(all_x)
+    min_y, max_y = np.min(all_y), np.max(all_y)
     span_x = max(1.0, max_x - min_x)
     span_y = max(1.0, max_y - min_y)
     
     pad = 25
     sc = min((width - 2 * pad) / span_x, (height - 2 * pad) / span_y)
     
-    px = pad + (sub_x - min_x) * sc
-    py = pad + (sub_y - min_y) * sc
-    
-    path_d = f"M {px[0]:.1f} {py[0]:.1f} "
-    for i in range(1, len(px)):
-        path_d += f"L {px[i]:.1f} {py[i]:.1f} "
+    paths_svg = []
+    for s_idx in range(num_to_draw):
+        sx, sy = stroke_paths[s_idx]
+        if len(sx) < 2: continue
+        px = pad + (sx - min_x) * sc
+        py = pad + (sy - min_y) * sc
+        d_str = f"M {px[0]:.1f} {py[0]:.1f} "
+        for j in range(1, len(px)):
+            d_str += f"L {px[j]:.1f} {py[j]:.1f} "
+        paths_svg.append(f'<path d="{d_str}" stroke="#ff9933" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />')
         
     svg = f"""
     <svg width="100%" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" style="background:#0b0b14; border-radius:10px; border:1px solid #222238;">
-      <path d="{path_d}" stroke="#ff9933" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="{px[0]:.1f}" cy="{py[0]:.1f}" r="6" fill="#2ed573" />
-      <circle cx="{px[-1]:.1f}" cy="{py[-1]:.1f}" r="5" fill="#ff4757" />
+      {''.join(paths_svg)}
     </svg>
     """
     return svg
@@ -332,11 +310,11 @@ def main():
         image = Image.new('RGB', (400, 400), color=(15, 15, 25))
         caption_text = "Blank Canvas"
         
-    # Run the 5-Pillar Universal Process
-    with st.spinner("Extracting geometry, fitting parametric/algebraic equations, and verifying reconstruction..."):
+    # Run the Universal Clean Multi-Stroke Process
+    with st.spinner("Extracting stroke geometry, fitting equations, and verifying reconstruction..."):
         res = process_kolam_image(image)
         
-    # Verification & Summary Badges Bar
+    # Verification Badges Bar
     st.markdown(f"""
     <div class='badge-bar'>
         <span class='metric-badge badge-green'>✓ Equation Verification: {res['f1']*100:.1f}% F1 Overlap</span>
@@ -362,7 +340,7 @@ def main():
     with tab_studio:
         st.markdown("### 🎨 Image vs. Equation-Regenerated Kolam")
         st.markdown(
-            "The image on the left is your input. The middle image is **strictly re-drawn from the generated equations** (no original pixels). "
+            "The image on the left is your input. The middle image is **strictly re-drawn from the generated equations** (zero original pixels). "
             "The right image is the **mathematical verification overlay** (Cyan = Image, Magenta = Math, White = Exact Match)."
         )
         
@@ -383,29 +361,29 @@ def main():
             
         st.markdown("---")
         st.markdown("### ⏳ Progressive Trajectory Tracing")
-        st.markdown("Watch the mathematical equations draw the Kolam in real time stroke by stroke.")
+        st.markdown("Watch the mathematical equations draw the Kolam stroke by stroke.")
         
-        progress = st.slider("Step Trajectory Progress (t)", 0.01, 1.0, 1.0, 0.01)
+        progress = st.slider("Step Trajectory Progress (t)", 0.05, 1.0, 1.0, 0.05)
         
         c_sl1, c_sl2 = st.columns([1, 1])
         with c_sl1:
-            n_pts = max(2, int(len(res['dense_trace_x']) * progress))
+            total_s = len(res['stroke_paths'])
+            draw_s = max(1, int(total_s * progress))
             fig_prog, ax_prog = plt.subplots(figsize=(4.5, 4.5), dpi=100)
             fig_prog.patch.set_facecolor('#0b0b14')
             ax_prog.set_facecolor('#12121f')
-            ax_prog.plot(res['dense_trace_x'][:n_pts], res['dense_trace_y'][:n_pts], color='#ff9933', linewidth=2.2)
-            ax_prog.scatter(res['dense_trace_x'][0], res['dense_trace_y'][0], color='#2ed573', s=45, label='Start Node', zorder=5)
-            ax_prog.scatter(res['dense_trace_x'][n_pts-1], res['dense_trace_y'][n_pts-1], color='#ff4757', s=40, label='Current Head', zorder=5)
+            for idx_s in range(draw_s):
+                sx, sy = res['stroke_paths'][idx_s]
+                ax_prog.plot(sx, sy, color='#ff9933', linewidth=1.8)
             ax_prog.invert_yaxis()
             ax_prog.set_aspect('equal')
             ax_prog.axis('off')
-            ax_prog.legend(loc='lower left', facecolor='#151522', edgecolor='#222238', labelcolor='#f7f3e9', fontsize=9)
             plt.tight_layout(pad=0)
             st.pyplot(fig_prog)
             plt.close(fig_prog)
             
         with c_sl2:
-            svg_code = generate_svg(res['dense_trace_x'], res['dense_trace_y'], progress, width=450, height=360)
+            svg_code = generate_multi_stroke_svg(res['stroke_paths'], progress, width=450, height=360)
             st.components.v1.html(svg_code, height=370)
             st.download_button(
                 "📥 Download Scalable Vector Graphic (SVG)",
