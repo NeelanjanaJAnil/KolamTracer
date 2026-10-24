@@ -43,23 +43,38 @@ except Exception:
         return 1, 0
 
 try:
-    from registration import logical_to_pixel
+    from registration import logical_to_pixel, AFFINE_PARAMS
 except Exception:
-    from reconstruct import logical_to_pixel
+    from reconstruct import logical_to_pixel, AFFINE_PARAMS
 
-def run_stages_pipeline(image_path, csv_path=None, family='kolam19', custom_path_logical=None):
+def run_stages_pipeline(image_path, csv_path=None, family='kolam19', custom_path_logical=None, custom_params=None):
     """
     Executes the 5 image-processing stages and returns a dictionary of RGBA/RGB image arrays
     and topological diagnostics.
     """
-    im_pil = Image.open(image_path).convert('RGB')
+    if isinstance(image_path, Image.Image):
+        im_pil = image_path.convert('RGB')
+    elif hasattr(image_path, 'read'):
+        image_path.seek(0)
+        im_pil = Image.open(image_path).convert('RGB')
+    else:
+        im_pil = Image.open(image_path).convert('RGB')
+
+    canvas_dim = custom_params['canvas_dim'] if custom_params else AFFINE_PARAMS[family]['canvas_dim']
+    if im_pil.size != (canvas_dim, canvas_dim):
+        im_pil = im_pil.resize((canvas_dim, canvas_dim), Image.Resampling.LANCZOS)
+
     orig_np = np.array(im_pil)
     gray = np.array(im_pil.convert('L'))
     h, w = gray.shape
     
-    # 1. Otsu binary
+    # 1. Otsu binary with automatic polarity detection (dark ink vs white chalk)
     th = filters.threshold_otsu(gray)
-    bin_otsu = (gray < th) # dark stroke foreground = True
+    corners = [gray[0, 0], gray[0, -1], gray[-1, 0], gray[-1, -1]]
+    if np.mean(corners) < th:
+        bin_otsu = (gray > th) # White chalk on dark ground
+    else:
+        bin_otsu = (gray < th) # Dark ink on white ground
     
     # 2. Dots removed (morphological opening / small object filter)
     # Remove isolated dots smaller than stroke loops
@@ -84,7 +99,7 @@ def run_stages_pipeline(image_path, csv_path=None, family='kolam19', custom_path
     else:
         path_logical = None
 
-    ordered_path_img = render_ordered_path_image(orig_np, path_logical, family)
+    ordered_path_img = render_ordered_path_image(orig_np, path_logical, family, custom_params=custom_params)
     
     return {
         'stage1_orig': orig_np,
@@ -97,7 +112,7 @@ def run_stages_pipeline(image_path, csv_path=None, family='kolam19', custom_path
         'path_logical': path_logical
     }
 
-def render_ordered_path_image(bg_image, path_logical, family='kolam19'):
+def render_ordered_path_image(bg_image, path_logical, family='kolam19', custom_params=None):
     """
     Renders the ordered trajectory mapped to pixel coordinates,
     colored progressively by sequence order (cool-to-warm gradient),
@@ -112,7 +127,7 @@ def render_ordered_path_image(bg_image, path_logical, family='kolam19'):
     ax.imshow(bg_image, alpha=0.35)
     
     if path_logical is not None and len(path_logical) > 1:
-        pts_pix = logical_to_pixel(path_logical, family)
+        pts_pix = logical_to_pixel(path_logical, family, custom_params=custom_params)
         px, py = pts_pix[:, 0], pts_pix[:, 1]
         N = len(px)
         

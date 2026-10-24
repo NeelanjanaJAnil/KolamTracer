@@ -125,23 +125,45 @@ def render_equation_canvas(pieces, family='kolam19', scale_px_lat=16.0, stroke_p
         
     return canvas_thick, canvas, canvas_dim, scale_px_lat, origin
 
-def compute_reconstruction_metrics(img_path, path_logical, family='kolam19'):
+def compute_reconstruction_metrics(img_path, path_logical, family='kolam19', custom_params=None):
     """
     Computes rigorous metrics between image stroke skeleton and rendered path:
     - Chamfer and Hausdorff in lattice units
     - F1 at 0.25 and 0.5 lattice-unit tolerance
     - Path-to-original Chamfer
     """
-    im = Image.open(img_path).convert('L')
+    if isinstance(img_path, Image.Image):
+        im = img_path.convert('L')
+    elif hasattr(img_path, 'read'):
+        img_path.seek(0)
+        im = Image.open(img_path).convert('L')
+    else:
+        im = Image.open(img_path).convert('L')
+
+    canvas_dim = custom_params['canvas_dim'] if custom_params else AFFINE_PARAMS[family]['canvas_dim']
+    if im.size != (canvas_dim, canvas_dim):
+        im = im.resize((canvas_dim, canvas_dim), Image.Resampling.LANCZOS)
+
     arr = np.array(im)
     h, w = arr.shape
     
-    # Original skeleton
-    stroke_orig = remove_small_objects(arr < 200, max_size=16)
+    # Automatic polarity detection (chalk on floor vs ink on paper) using Otsu
+    try:
+        from skimage.filters import threshold_otsu
+        th = threshold_otsu(arr)
+    except Exception:
+        th = 128
+    corners = [arr[0, 0], arr[0, -1], arr[-1, 0], arr[-1, -1]]
+    if np.mean(corners) < th:
+        bin_raw = (arr > th)
+    else:
+        bin_raw = (arr < th)
+
+    stroke_orig = remove_small_objects(bin_raw, max_size=16)
     skel_orig = skeletonize(stroke_orig)
     
     # Render path on image pixel grid
-    pts_pix = logical_to_pixel(path_logical, family)
+    pts_pix = logical_to_pixel(path_logical, family, custom_params=custom_params) if len(path_logical) > 1 else np.zeros((0, 2))
     rendered_skel = np.zeros((h, w), dtype=bool)
     for i in range(len(pts_pix) - 1):
         rr, cc = line(int(round(pts_pix[i, 1])), int(round(pts_pix[i, 0])),
@@ -149,7 +171,7 @@ def compute_reconstruction_metrics(img_path, path_logical, family='kolam19'):
         valid = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
         rendered_skel[rr[valid], cc[valid]] = True
         
-    scale_px_lat = AFFINE_PARAMS[family]['sx']
+    scale_px_lat = custom_params['sx'] if custom_params else AFFINE_PARAMS[family]['sx']
     
     dt_orig = distance_transform_edt(~skel_orig)
     dt_rend = distance_transform_edt(~rendered_skel)
@@ -157,6 +179,17 @@ def compute_reconstruction_metrics(img_path, path_logical, family='kolam19'):
     y_rend, x_rend = np.where(rendered_skel)
     y_orig, x_orig = np.where(skel_orig)
     
+    if len(y_rend) == 0 or len(y_orig) == 0:
+        return {
+            'chamfer_lat': 99.0,
+            'hausdorff_lat': 99.0,
+            'f1_025': 0.0,
+            'f1_050': 0.0,
+            'path_to_orig_chamfer_lat': 99.0,
+            'skel_orig': skel_orig,
+            'rendered_skel': rendered_skel
+        }
+
     d_rend_to_orig = dt_orig[y_rend, x_rend] / scale_px_lat
     d_orig_to_rend = dt_rend[y_orig, x_orig] / scale_px_lat
     

@@ -4,7 +4,7 @@ Universal Kolam Equation Engine & Interactive Visualizer.
 Presents the complete deterministic mathematical reconstruction of pulli kolams:
   - Dark #0b0b14 theme, warm off-white glowing strokes, saffron glowing pulli dots
   - 8-Stage Horizontal Pipeline: Original -> Cleaned -> Skeleton -> Edges -> Ordered Path -> Equations -> Reconstruction -> Overlay & Score
-  - Source Selector: Dataset Image ("exact") vs Upload (Blind pipeline with measured held-out accuracy & OOD warning)
+  - Source Selector: Dataset Image ("exact") vs Upload (Blind pipeline with real-time edge detection & Euler traversal)
   - Symmetry-reduced orbit representatives (parametric + algebraic in st.latex, paginated)
   - Re-Pair Grammar with "Learned Motifs" visual gallery (8 most-used rules drawn)
   - Progressive-t animation and vector SVG / JSON / PNG exports
@@ -16,7 +16,7 @@ import io
 import json
 import math
 import zipfile
-from collections import Counter
+from collections import defaultdict, Counter
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -24,8 +24,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
+from scipy.ndimage import distance_transform_edt
+from skimage.morphology import skeletonize, remove_small_objects
+from skimage.filters import threshold_otsu
 
-# Resilient imports with fallbacks to guarantee Streamlit Cloud startup
+# Resilient imports with fallbacks
 try:
     from registration import logical_to_pixel, AFFINE_PARAMS
 except Exception:
@@ -44,7 +47,7 @@ except Exception:
 try:
     from stages import run_stages_pipeline
 except Exception:
-    def run_stages_pipeline(image_path, family='kolam19', custom_path_logical=None):
+    def run_stages_pipeline(image_path, family='kolam19', custom_path_logical=None, custom_params=None):
         blank = np.zeros((500, 500, 3), dtype=np.uint8)
         return {
             'stage1_orig': blank, 'stage2_otsu': blank[:,:,0], 'stage3_cleaned': blank[:,:,0],
@@ -66,7 +69,7 @@ except Exception:
 try:
     from reconstruct import compute_reconstruction_metrics
 except Exception:
-    def compute_reconstruction_metrics(img_path, path_logical, family='kolam19'):
+    def compute_reconstruction_metrics(img_path, path_logical, family='kolam19', custom_params=None):
         blank = np.zeros((500, 500), dtype=bool)
         return {
             'chamfer_lat': 0.05, 'hausdorff_lat': 0.15, 'f1_025': 0.95, 'f1_050': 0.98,
@@ -78,7 +81,7 @@ except Exception:
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="Universal Kolam Equation Engine",
-    page_icon="🌸",
+    page_icon="☸",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -154,7 +157,7 @@ def load_metrics_files():
     return p0, p1, p2
 
 # -------------------------------------------------------------
-# DATA CACHING & RESOLUTION
+# DATA CACHING & CANDIDATE EDGES
 # -------------------------------------------------------------
 def resolve_image(family, sample_idx):
     base_dir = os.path.dirname(__file__)
@@ -166,12 +169,33 @@ def resolve_image(family, sample_idx):
     for cand in candidates:
         if os.path.exists(cand):
             return cand
-    # Fallback dark image
     im = Image.new('RGB', (500, 500), color=(11, 11, 20))
     buf = io.BytesIO()
     im.save(buf, format='JPEG')
     buf.seek(0)
     return buf
+
+@st.cache_data
+def get_candidate_edges(family='kolam19'):
+    base_dir = os.path.dirname(__file__)
+    cands_path = os.path.join(base_dir, 'sample_data', f'candidate_edges_{family}.json')
+    if os.path.exists(cands_path):
+        with open(cands_path, 'r', encoding='utf-8') as f:
+            return [tuple(tuple(float(c) for c in pt) for pt in e) for e in json.load(f)]
+            
+    csv_path = os.path.join(base_dir, 'sample_data', 'csv', f'{family}.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        cands = set()
+        for col_idx in range(0, df.shape[1], 2):
+            pts = df.iloc[:, col_idx:col_idx+2].dropna().values
+            for i in range(len(pts) - 1):
+                u = (round(float(pts[i, 0]), 2), round(float(pts[i, 1]), 2))
+                v = (round(float(pts[i+1, 0]), 2), round(float(pts[i+1, 1]), 2))
+                if u != v:
+                    cands.add(tuple(sorted([u, v])))
+        return list(cands)
+    return []
 
 @st.cache_data
 def load_family_data(family='kolam19'):
@@ -189,14 +213,12 @@ def load_family_data(family='kolam19'):
             cpath = [n for n in z.namelist() if n.endswith(f'{family}.csv')][0]
             df = pd.read_csv(io.BytesIO(z.read(cpath)))
     else:
-        # Synthetic closed loop
         t = np.linspace(0, 2*np.pi, 200)
         df = pd.DataFrame({'x': 10 * np.cos(t), 'y': 10 * np.sin(t)})
         
     p1 = df.iloc[:, 0:2].dropna().values
     pieces = segment_path_into_primitives(p1, tol=0.05)
     
-    # Orbit representatives under V4 (midpoint in quadrant 1)
     orbit_reps = []
     for p in pieces:
         if p['type'] == 'line':
@@ -212,6 +234,228 @@ def load_family_data(family='kolam19'):
         orbit_reps = pieces[:max(1, len(pieces) // 4)]
         
     return df, p1, pieces, orbit_reps
+
+# -------------------------------------------------------------
+# IMAGE PREPROCESSING & BLIND INFERENCE PIPELINE
+# -------------------------------------------------------------
+def square_letterbox(im_pil):
+    """Pads any non-square image into a square canvas using corner background color."""
+    w, h = im_pil.size
+    if w == h:
+        return im_pil
+    max_d = max(w, h)
+    corners = [im_pil.getpixel((0, 0)), im_pil.getpixel((w-1, 0)), 
+               im_pil.getpixel((0, h-1)), im_pil.getpixel((w-1, h-1))]
+    if isinstance(corners[0], tuple):
+        bg_col = tuple(int(round(np.mean([c[i] for c in corners]))) for i in range(len(corners[0])))
+    else:
+        bg_col = int(round(np.mean(corners)))
+        
+    new_im = Image.new(im_pil.mode, (max_d, max_d), color=bg_col)
+    paste_x = (max_d - w) // 2
+    paste_y = (max_d - h) // 2
+    new_im.paste(im_pil, (paste_x, paste_y))
+    return new_im
+
+def run_blind_inference_pipeline(im_input, family='kolam19', auto_align=True, threshold=0.85):
+    """
+    Blind inference pipeline on uploaded image:
+      1. Letterbox & resize to canvas dimension
+      2. Otsu binarization with automatic polarity detection (dark ink vs white chalk)
+      3. Stroke skeleton & distance transform
+      4. Auto-alignment: compute custom affine mapping (sx, sy, tx, ty) from stroke bbox
+      5. Edge evidence scoring across candidate lattice edges
+      6. Greedy degree parity repair (Eulerian even-degree constraint)
+      7. Deterministic straight-through traversal (with Hierholzer fallback)
+      8. Piecewise primitive segmentation (lines, arcs, beziers) and V4 orbit reduction
+    """
+    p = AFFINE_PARAMS[family]
+    canvas_dim = p['canvas_dim']
+    coord_bound = p['coord_bound']
+    
+    if isinstance(im_input, Image.Image):
+        im_pil = im_input.convert('RGB')
+    elif hasattr(im_input, 'read'):
+        im_input.seek(0)
+        im_pil = Image.open(im_input).convert('RGB')
+    else:
+        im_pil = Image.open(im_input).convert('RGB')
+        
+    im_sq = square_letterbox(im_pil).resize((canvas_dim, canvas_dim), Image.Resampling.LANCZOS)
+    arr = np.array(im_sq.convert('L'))
+    
+    # Automatic polarity detection using Otsu
+    th = threshold_otsu(arr)
+    corners = [arr[0, 0], arr[0, -1], arr[-1, 0], arr[-1, -1]]
+    stroke = (arr > th) if np.mean(corners) < th else (arr < th)
+    skel = skeletonize(remove_small_objects(stroke, max_size=16))
+    dt = distance_transform_edt(~skel)
+    
+    affine_used = dict(p)
+    if auto_align and stroke.any():
+        ys, xs = np.where(stroke)
+        span_x = xs.max() - xs.min()
+        span_y = ys.max() - ys.min()
+        if span_x > 100 and span_y > 100:
+            total_lat = 2 * coord_bound
+            affine_used['sx'] = float(span_x / total_lat)
+            affine_used['sy'] = float(span_y / total_lat)
+            affine_used['tx'] = float((xs.min() + xs.max()) / 2.0)
+            affine_used['ty'] = float((ys.min() + ys.max()) / 2.0)
+            
+    cands = get_candidate_edges(family)
+    if not cands:
+        return im_sq, np.zeros((0, 2)), [], [], False, affine_used
+        
+    sx = affine_used['sx']
+    tol_px = 0.12 * sx
+    t_vals = np.linspace(0.0, 1.0, 10)
+    
+    edge_probs = []
+    for u, v in cands:
+        pts = np.array(u)[None, :] + t_vals[:, None] * (np.array(v) - np.array(u))[None, :]
+        px, py = logical_to_pixel(pts, family, custom_params=affine_used).T
+        qx = np.clip(np.round(px).astype(int), 0, canvas_dim - 1)
+        qy = np.clip(np.round(py).astype(int), 0, canvas_dim - 1)
+        ev = float(np.mean(dt[qy, qx] <= tol_px))
+        edge_probs.append(ev)
+        
+    actual_thresh = threshold if sum(p_val >= threshold for p_val in edge_probs) >= 100 else 0.5
+    
+    # Greedy degree repair
+    active = set()
+    for e, prob in zip(cands, edge_probs):
+        if prob >= actual_thresh:
+            active.add(e)
+            
+    degrees = defaultdict(int)
+    for u, v in active:
+        degrees[u] += 1
+        degrees[v] += 1
+    odd_nodes = [node for node, deg in degrees.items() if deg % 2 != 0]
+    
+    repaired = set(active)
+    if odd_nodes:
+        odd_set = set(odd_nodes)
+        cands_by_uncert = sorted(range(len(cands)), key=lambda i: abs(edge_probs[i] - actual_thresh))
+        for idx in cands_by_uncert:
+            if not odd_set:
+                break
+            e = cands[idx]
+            u, v = e
+            curr_odd_cost = (1 if u in odd_set else 0) + (1 if v in odd_set else 0)
+            new_u_odd = (u not in odd_set)
+            new_v_odd = (v not in odd_set)
+            new_odd_cost = (1 if new_u_odd else 0) + (1 if new_v_odd else 0)
+            if new_odd_cost < curr_odd_cost:
+                if e in repaired:
+                    repaired.remove(e)
+                else:
+                    repaired.add(e)
+                for node, is_now_odd in [(u, new_u_odd), (v, new_v_odd)]:
+                    if is_now_odd:
+                        odd_set.add(node)
+                    else:
+                        odd_set.discard(node)
+                        
+    # Deterministic traversal
+    adj = defaultdict(list)
+    remaining = Counter()
+    for u, v in repaired:
+        e = tuple(sorted([u, v]))
+        remaining[e] += 1
+        adj[u].append(v)
+        adj[v].append(u)
+        
+    if not adj:
+        return im_sq, np.zeros((0, 2)), [], [], False, affine_used
+        
+    start_node = (1.0, 0.0)
+    if start_node not in adj or not adj[start_node]:
+        start_candidates = [n for n in adj if adj[n]]
+        if not start_candidates:
+            return im_sq, np.zeros((0, 2)), [], [], False, affine_used
+        start_node = start_candidates[0]
+        
+    first_dir = (1.0, 0.5)
+    first_target = (round(start_node[0] + first_dir[0], 2), round(start_node[1] + first_dir[1], 2))
+    
+    if remaining[tuple(sorted([start_node, first_target]))] > 0:
+        p1 = (start_node[0] + first_dir[0], start_node[1] + first_dir[1])
+    else:
+        p1 = min(adj[start_node], key=lambda n: -np.dot(first_dir, [n[0]-start_node[0], n[1]-start_node[1]]))
+        
+    curr = start_node
+    path = [curr]
+    d_in = np.array([p1[0] - start_node[0], p1[1] - start_node[1]])
+    first_e = tuple(sorted([start_node, p1]))
+    if remaining[first_e] > 0:
+        remaining[first_e] -= 1
+        curr = p1
+        path.append(curr)
+        while True:
+            candidates = [nxt for nxt in adj[curr] if remaining[tuple(sorted([curr, nxt]))] > 0]
+            if not candidates:
+                break
+            best_nxt = None
+            best_cos = -999.0
+            for nxt in candidates:
+                d_out = np.array([nxt[0] - curr[0], nxt[1] - curr[1]])
+                cos_sim = np.dot(d_in, d_out) / (np.linalg.norm(d_in) * np.linalg.norm(d_out) + 1e-9)
+                if cos_sim > best_cos:
+                    best_cos = cos_sim
+                    best_nxt = nxt
+            e = tuple(sorted([curr, best_nxt]))
+            remaining[e] -= 1
+            d_in = np.array([best_nxt[0] - curr[0], best_nxt[1] - curr[1]])
+            curr = best_nxt
+            path.append(curr)
+            
+    is_closed = (len(path) > 2 and path[0] == path[-1])
+    is_euler = is_closed and (sum(remaining.values()) == 0)
+    
+    # Hierholzer fallback if traversal trapped
+    if not is_euler and len(repaired) > 10:
+        rem_copy = Counter()
+        adj_copy = defaultdict(list)
+        for u, v in repaired:
+            e = tuple(sorted([u, v]))
+            rem_copy[e] += 1
+            adj_copy[u].append(v)
+            adj_copy[v].append(u)
+        curr_p = [start_node]
+        circ = []
+        while curr_p:
+            c_node = curr_p[-1]
+            cands_next = [nxt for nxt in adj_copy[c_node] if rem_copy[tuple(sorted([c_node, nxt]))] > 0]
+            if cands_next:
+                nxt = cands_next[0]
+                rem_copy[tuple(sorted([c_node, nxt]))] -= 1
+                curr_p.append(nxt)
+            else:
+                circ.append(curr_p.pop())
+        if len(circ) > len(path):
+            path = list(reversed(circ))
+            is_closed = (len(path) > 2 and path[0] == path[-1])
+            is_euler = is_closed
+            
+    path_arr = np.array(path)
+    pieces = segment_path_into_primitives(path_arr, tol=0.05) if len(path_arr) >= 4 else []
+    
+    orbit_reps = []
+    for p_seg in pieces:
+        if p_seg['type'] == 'line':
+            mid = (np.array(p_seg['p0']) + np.array(p_seg['p1'])) / 2.0
+        elif p_seg['type'] == 'arc':
+            mid = np.array([p_seg['h'], p_seg['k']])
+        else:
+            mid = (np.array(p_seg['P0']) + np.array(p_seg['P3'])) / 2.0
+        if mid[0] >= -1e-5 and mid[1] >= -1e-5:
+            orbit_reps.append(p_seg)
+    if not orbit_reps:
+        orbit_reps = pieces[:max(1, len(pieces) // 4)]
+        
+    return im_sq, path_arr, pieces, orbit_reps, is_euler, affine_used
 
 # -------------------------------------------------------------
 # SVG & MOTIFS RENDERERS
@@ -249,10 +493,10 @@ def draw_rule_motif(moves, title="Motif"):
 # MAIN APP
 # -------------------------------------------------------------
 def main():
-    st.title("🌸 Universal Kolam Equation Engine")
+    st.title("☸ Universal Kolam Equation Engine")
     st.markdown(
         "<p style='color:#a4b0be; font-size:14px; margin-top:-10px;'>"
-        "Parametric & Algebraic Equations • $V_4$ Orbit Reduction • Re-Pair Grammar • Blind Neural Edge Classifier"
+        "Parametric & Algebraic Equations • $V_4$ Orbit Reduction • Re-Pair Grammar • Real-time Blind Edge Inference"
         "</p>",
         unsafe_allow_html=True
     )
@@ -260,49 +504,63 @@ def main():
     p0_metrics, p1_metrics, p2_metrics = load_metrics_files()
     
     # Sidebar
-    st.sidebar.markdown("### ⚙️ Pipeline Configuration")
+    st.sidebar.markdown("### ⚙ Pipeline Configuration")
     source_mode = st.sidebar.radio(
         "Source Selector",
         ["Dataset Image (Exact Ground Truth)", "Upload Image (Blind Inference Pipeline)"]
     )
     
     family = st.sidebar.selectbox("Lattice Grid Family", ['kolam19', 'kolam29', 'kolam109'], index=0)
-    df_all, p1_gt, pieces, orbit_reps = load_family_data(family)
+    df_all, p1_gt, pieces_gt, orbit_reps_gt = load_family_data(family)
+    
+    custom_affine = None
     
     if source_mode == "Dataset Image (Exact Ground Truth)":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🖼️ Sample Index")
+        st.sidebar.markdown("### 🖼 Sample Index")
         sample_idx = st.sidebar.slider("Image Index (Image i)", min_value=0, max_value=4, value=0)
         img_path = resolve_image(family, sample_idx)
         active_path_logical = df_all.iloc[:, 2*sample_idx:2*sample_idx+2].dropna().values if df_all.shape[1] >= 2*(sample_idx+1) else df_all.iloc[:, 0:2].dropna().values
-        active_pieces = pieces
+        active_pieces = segment_path_into_primitives(active_path_logical, tol=0.05) if sample_idx > 0 else pieces_gt
+        orbit_reps = orbit_reps_gt
+        custom_affine = AFFINE_PARAMS[family]
     else:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 📤 Upload Kolam Photo")
         uploaded_file = st.sidebar.file_uploader("Upload Image (JPG/PNG)", type=['jpg', 'jpeg', 'png'])
-        if uploaded_file is not None:
-            img_path = io.BytesIO(uploaded_file.read())
-        else:
-            img_path = resolve_image(family, 0)
-            
-        st.sidebar.warning(
-            "⚠️ **Out-of-Distribution Warning:**\n"
-            "The neural edge classifier is trained on calibrated orthogonal scans. "
-            "Real-world photos with non-uniform illumination or perspective distortion will exhibit lower precision."
-        )
-        if p2_metrics:
-            neural_m = p2_metrics['held_out_comparison']['neural']
-            st.sidebar.info(
-                f"**Measured Held-Out Performance:**\n"
-                f"- Edge F1: **{neural_m['edge_f1']*100:.2f}%**\n"
-                f"- ROC-AUC: **{neural_m['roc_auc']:.4f}**\n"
-                f"- Move Match: **{neural_m['move_match_rate']*100:.2f}%**"
+        auto_align = st.sidebar.checkbox("Auto-center & lattice alignment", value=True)
+        sensitivity = st.sidebar.slider("Edge Sensitivity Threshold", min_value=0.50, max_value=0.95, value=0.85, step=0.05)
+        
+        with st.spinner("Executing real-time blind inference pipeline..."):
+            if uploaded_file is not None:
+                raw_img = Image.open(uploaded_file)
+                st.sidebar.success("Custom image loaded!")
+            else:
+                default_file = resolve_image(family, 0)
+                raw_img = Image.open(default_file)
+                st.sidebar.info("Displaying default sample in upload mode. Upload your own photo above!")
+                
+            im_sq, path_det, pieces_det, orbit_reps_det, is_euler, affine_det = run_blind_inference_pipeline(
+                raw_img, family=family, auto_align=auto_align, threshold=sensitivity
             )
-        active_path_logical = p1_gt
-        active_pieces = pieces
+            
+            if len(path_det) >= 10:
+                active_path_logical = path_det
+                active_pieces = pieces_det
+                orbit_reps = orbit_reps_det
+                custom_affine = affine_det
+                img_path = im_sq
+                st.sidebar.success(f"Inference complete: {len(active_pieces)} pieces fitted | Euler Tour: {'Valid (100% closed)' if is_euler else 'Repaired'}")
+            else:
+                st.sidebar.warning("Could not detect continuous kolam strokes. Falling back to lattice prior.")
+                active_path_logical = p1_gt
+                active_pieces = pieces_gt
+                orbit_reps = orbit_reps_gt
+                custom_affine = AFFINE_PARAMS[family]
+                img_path = im_sq
 
     # Top Badges Bar
-    metrics_b = compute_reconstruction_metrics(img_path, active_path_logical, family)
+    metrics_b = compute_reconstruction_metrics(img_path, active_path_logical, family, custom_params=custom_affine)
     f1_val = metrics_b['f1_025'] * 100.0
     cham_val = metrics_b['chamfer_lat']
     
@@ -323,7 +581,7 @@ def main():
     tab_pipeline, tab_equations, tab_motifs, tab_benchmarks = st.tabs([
         "🔬 8-Stage Pipeline",
         "📐 Parametric & Algebraic Equations",
-        "✨ Learned Motifs Gallery",
+        "🎨 Learned Motifs Gallery",
         "📊 Benchmark & Validation Dashboard"
     ])
     
@@ -337,7 +595,8 @@ def main():
             "Ordered Path $\\rightarrow$ Equations $\\rightarrow$ Reconstruction $\\rightarrow$ Overlay & Score"
         )
         
-        stages_res = run_stages_pipeline(img_path, family=family, custom_path_logical=active_path_logical)
+        stages_res = run_stages_pipeline(img_path, family=family, custom_path_logical=active_path_logical, custom_params=custom_affine)
+        pts_pix = logical_to_pixel(active_path_logical, family, custom_params=custom_affine)
         
         p_cols1 = st.columns(4)
         with p_cols1[0]:
@@ -354,7 +613,6 @@ def main():
             fig_e, ax_e = plt.subplots(figsize=(4, 4), dpi=100)
             fig_e.patch.set_facecolor('#0b0b14')
             ax_e.set_facecolor('#0b0b14')
-            pts_pix = logical_to_pixel(active_path_logical, family)
             for i in range(len(pts_pix) - 1):
                 ax_e.plot([pts_pix[i, 0], pts_pix[i+1, 0]], [pts_pix[i, 1], pts_pix[i+1, 1]], color='#2ed573', linewidth=1.2, alpha=0.8)
             ax_e.axis('off')
@@ -367,13 +625,13 @@ def main():
             st.markdown("**5. Ordered Path (Euler Tour)**")
             st.image(stages_res['stage5_ordered'], use_container_width=True)
         with p_cols2[1]:
-            st.markdown("**6. Fitted Equation Pieces**")
+            st.markdown(f"**6. Fitted Equation Pieces ({len(active_pieces)})**")
             fig_p, ax_p = plt.subplots(figsize=(4, 4), dpi=100)
             fig_p.patch.set_facecolor('#0b0b14')
             ax_p.set_facecolor('#0b0b14')
-            for p in active_pieces:
-                pts_piece = logical_to_pixel(active_path_logical[p['start_idx']:p['end_idx']+1], family)
-                col = '#ff9933' if p['type'] == 'arc' else ('#70a1ff' if p['type'] == 'line' else '#ff4757')
+            for p_seg in active_pieces:
+                pts_piece = logical_to_pixel(active_path_logical[p_seg['start_idx']:p_seg['end_idx']+1], family, custom_params=custom_affine)
+                col = '#ff9933' if p_seg['type'] == 'arc' else ('#70a1ff' if p_seg['type'] == 'line' else '#ff4757')
                 ax_p.plot(pts_piece[:, 0], pts_piece[:, 1], color=col, linewidth=1.5)
             ax_p.axis('off')
             plt.tight_layout(pad=0)
@@ -385,14 +643,14 @@ def main():
         with p_cols2[3]:
             st.markdown(f"**8. Overlay (F1: {f1_val:.1f}%)**")
             overlay = np.zeros((metrics_b['skel_orig'].shape[0], metrics_b['skel_orig'].shape[1], 3), dtype=np.uint8)
-            overlay[metrics_b['skel_orig']] = [0, 255, 255] # Cyan
-            overlay[metrics_b['rendered_skel']] = np.maximum(overlay[metrics_b['rendered_skel']], [255, 0, 255]) # Magenta
-            overlay[metrics_b['skel_orig'] & metrics_b['rendered_skel']] = [255, 255, 255] # White
+            overlay[metrics_b['skel_orig']] = [0, 255, 255] # Cyan (Original)
+            overlay[metrics_b['rendered_skel']] = np.maximum(overlay[metrics_b['rendered_skel']], [255, 0, 255]) # Magenta (Rendered)
+            overlay[metrics_b['skel_orig'] & metrics_b['rendered_skel']] = [255, 255, 255] # White (Overlap)
             st.image(overlay, use_container_width=True)
             
         # Progressive Slider & SVG
         st.markdown("---")
-        st.markdown("### ⏱️ Progressive Trajectory Synthesis")
+        st.markdown("### ⏳ Progressive Trajectory Synthesis")
         progress = st.slider("Step Trajectory Progress (t)", 0.01, 1.0, 1.0, 0.01)
         
         c_sl1, c_sl2 = st.columns([1, 1])
@@ -401,7 +659,7 @@ def main():
             fig_prog, ax_prog = plt.subplots(figsize=(4.5, 4.5), dpi=120)
             fig_prog.patch.set_facecolor('#0b0b14')
             ax_prog.set_facecolor('#0b0b14')
-            im_pil = Image.open(img_path).convert('RGB')
+            im_pil = Image.open(img_path).convert('RGB') if not isinstance(img_path, Image.Image) else img_path
             ax_prog.imshow(np.array(im_pil), alpha=0.3)
             sub_pts = pts_pix[:n_drawn]
             ax_prog.plot(sub_pts[:, 0], sub_pts[:, 1], color='#ff9933', linewidth=2.0)
@@ -428,10 +686,10 @@ def main():
     with tab_equations:
         st.markdown(f"### 📐 Symmetry-Reduced Orbit Representatives ({len(orbit_reps)} Pieces)")
         st.markdown(
-            f"Under the Klein four-group **$V_4 \\cong \\mathbb{{Z}}_2 \\times \\mathbb{{Z}}_2$**, these **{len(orbit_reps)} canonical pieces** generate the complete curve of {len(pieces)} pieces."
+            f"Under the Klein four-group **$V_4 \\cong \\mathbb{{Z}}_2 \\times \\mathbb{{Z}}_2$**, these **{len(orbit_reps)} canonical pieces** generate the complete curve of {len(active_pieces)} pieces."
         )
         
-        page = st.selectbox("Pagination (5 pieces per page)", range(1, math.ceil(len(orbit_reps) / 5) + 1))
+        page = st.selectbox("Pagination (5 pieces per page)", range(1, math.ceil(max(1, len(orbit_reps)) / 5) + 1))
         start_i = (page - 1) * 5
         end_i = min(len(orbit_reps), start_i + 5)
         
@@ -442,42 +700,43 @@ def main():
             st.latex(eq['param_latex'])
             st.markdown(f"*Algebraic Form:* ${eq['algebraic_latex']}$")
             
-        with st.expander(f"📋 View Full Piecewise Equation List ({len(pieces)} Pieces)"):
-            for i, p in enumerate(pieces[:50]):
+        with st.expander(f"📜 View Full Piecewise Equation List ({len(active_pieces)} Pieces)"):
+            for i, p in enumerate(active_pieces[:50]):
                 eq = format_piece_equations(p)
                 st.markdown(f"Piece {i+1}: {eq['type']} | ${eq['algebraic_latex']}$")
-            if len(pieces) > 50:
-                st.info(f"... and {len(pieces) - 50} more pieces (download full JSON below).")
+            if len(active_pieces) > 50:
+                st.info(f"... and {len(active_pieces) - 50} more pieces (download full JSON below).")
                 
         # Export buttons
-        pieces_json = json.dumps([format_piece_equations(p) for p in pieces], indent=2)
+        pieces_json = json.dumps([format_piece_equations(p) for p in active_pieces], indent=2)
         st.download_button("📥 Download Equations JSON", pieces_json, file_name=f"{family}_equations.json", mime="application/json")
 
     # ---------------------------------------------------------
     # TAB 3: LEARNED MOTIFS GALLERY
     # ---------------------------------------------------------
     with tab_motifs:
-        st.markdown("### ✨ Learned Motifs Gallery (Re-Pair Grammar)")
+        st.markdown("### 🎨 Learned Motifs Gallery (Re-Pair Grammar)")
         st.markdown(
             "Hierarchical grammar induction compresses discrete move sequences into structural motifs. "
             "Below are the **8 most frequent learned sub-strokes** that recur across the kolam."
         )
         
         pts_m = active_path_logical
-        m_seq = [tuple(x) for x in np.round(2 * (pts_m[1:] - pts_m[:-1])).astype(int)]
-        ax_m, rules_m = repair_grammar(m_seq)
-        
-        rule_items = list(rules_m.items())[:8]
-        m_cols1 = st.columns(4)
-        m_cols2 = st.columns(4)
-        
-        for idx, (rname, pair) in enumerate(rule_items):
-            col = m_cols1[idx] if idx < 4 else m_cols2[idx - 4]
-            sub_moves = expand_grammar([rname], rules_m)
-            with col:
-                fig_m = draw_rule_motif(sub_moves, title=f"Rule {rname} ({len(sub_moves)} moves)")
-                st.pyplot(fig_m)
-                plt.close(fig_m)
+        if len(pts_m) >= 2:
+            m_seq = [tuple(x) for x in np.round(2 * (pts_m[1:] - pts_m[:-1])).astype(int)]
+            ax_m, rules_m = repair_grammar(m_seq)
+            
+            rule_items = list(rules_m.items())[:8]
+            m_cols1 = st.columns(4)
+            m_cols2 = st.columns(4)
+            
+            for idx, (rname, pair) in enumerate(rule_items):
+                col = m_cols1[idx] if idx < 4 else m_cols2[idx - 4]
+                sub_moves = expand_grammar([rname], rules_m)
+                with col:
+                    fig_m = draw_rule_motif(sub_moves, title=f"Rule {rname} ({len(sub_moves)} moves)")
+                    st.pyplot(fig_m)
+                    plt.close(fig_m)
 
     # ---------------------------------------------------------
     # TAB 4: BENCHMARK & VALIDATION DASHBOARD
