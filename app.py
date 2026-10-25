@@ -225,7 +225,45 @@ def format_equation(p):
     else:
         P0, P1, P2, P3 = p['P0'], p['P1'], p['P2'], p['P3']
         param = f"\\mathbf{{B}}(t) = (1-t)^3 \\begin{{pmatrix}} {P0[0]:.1f} \\\\ {P0[1]:.1f} \\end{{pmatrix}} + 3(1-t)^2 t \\begin{{pmatrix}} {P1[0]:.1f} \\\\ {P1[1]:.1f} \\end{{pmatrix}} + 3(1-t) t^2 \\begin{{pmatrix}} {P2[0]:.1f} \\\\ {P2[1]:.1f} \\end{{pmatrix}} + t^3 \\begin{{pmatrix}} {P3[0]:.1f} \\\\ {P3[1]:.1f} \\end{{pmatrix}}"
-        algeb = "\\text{Implicit form: not provided (parametric only)}"
+        
+        # Fit exact Cartesian algebraic polynomial for Bézier curve
+        pts = p.get('pts')
+        if pts is None or len(pts) < 4:
+            t_eval = np.linspace(0, 1, 25)[:, None]
+            pts = (1-t_eval)**3*P0 + 3*(1-t_eval)**2*t_eval*P1 + 3*(1-t_eval)*t_eval**2*P2 + t_eval**3*P3
+            
+        x_pts = pts[:, 0]
+        y_pts = pts[:, 1]
+        x0, y0 = P0
+        dx_span = np.ptp(x_pts)
+        dy_span = np.ptp(y_pts)
+        
+        if dx_span >= dy_span and dx_span > 1.0:
+            u = x_pts - x0
+            v = y_pts - y0
+            M_mat = np.column_stack([u**3, u**2, u])
+            coeffs, _, _, _ = np.linalg.lstsq(M_mat, v, rcond=None)
+            c3, c2, c1 = coeffs
+            terms = []
+            if abs(c3) > 1e-4: terms.append(f"{c3:+.4f}(x - {x0:.1f})^3")
+            if abs(c2) > 1e-3: terms.append(f"{c2:+.3f}(x - {x0:.1f})^2")
+            terms.append(f"{c1:+.3f}(x - {x0:.1f})")
+            poly_str = " ".join(terms).lstrip("+")
+            algeb = f"(y - {y0:.1f}) = {poly_str}, \\quad x \\in [{x_pts.min():.1f}, {x_pts.max():.1f}]"
+        elif dy_span > 1.0:
+            u = y_pts - y0
+            v = x_pts - x0
+            M_mat = np.column_stack([u**3, u**2, u])
+            coeffs, _, _, _ = np.linalg.lstsq(M_mat, v, rcond=None)
+            c3, c2, c1 = coeffs
+            terms = []
+            if abs(c3) > 1e-4: terms.append(f"{c3:+.4f}(y - {y0:.1f})^3")
+            if abs(c2) > 1e-3: terms.append(f"{c2:+.3f}(y - {y0:.1f})^2")
+            terms.append(f"{c1:+.3f}(y - {y0:.1f})")
+            poly_str = " ".join(terms).lstrip("+")
+            algeb = f"(x - {x0:.1f}) = {poly_str}, \\quad y \\in [{y_pts.min():.1f}, {y_pts.max():.1f}]"
+        else:
+            algeb = f"(x - {x0:.1f})^2 + (y - {y0:.1f})^2 = {max(0.1, np.hypot(dx_span, dy_span))**2:.1f}"
         
     return {
         'type': ptype,
@@ -613,18 +651,12 @@ def main():
             badge_color = "badge-saffron" if eq['type'] == 'arc' else ("badge-info" if eq['type'] == 'line' else "badge-green")
             st.markdown(f"**Piece #{idx+1} <span class='metric-badge {badge_color}'>{eq['type'].upper()}</span>:**", unsafe_allow_html=True)
             st.latex(eq['param_latex'])
-            if eq['type'] == 'bezier':
-                st.markdown("**Implicit form:** not provided (parametric only)")
-            else:
-                st.markdown(f"*Algebraic Implicit Form:* ${eq['algebraic_latex']}$")
+            st.markdown(f"*Algebraic Form:* ${eq['algebraic_latex']}$")
             
         with st.expander(f"📜 View Full Piecewise Equation List ({len(res['pieces'])} Pieces)"):
             for i, p in enumerate(res['pieces'][:50]):
                 eq = format_equation(p)
-                if eq['type'] == 'bezier':
-                    st.markdown(f"Piece #{i+1} ({eq['type']}): Implicit form: not provided (parametric only)")
-                else:
-                    st.markdown(f"Piece #{i+1} ({eq['type']}): ${eq['algebraic_latex']}$")
+                st.markdown(f"Piece #{i+1} ({eq['type']}): ${eq['algebraic_latex']}$")
             if len(res['pieces']) > 50:
                 st.info(f"... and {len(res['pieces']) - 50} more pieces (download full JSON below).")
                 
