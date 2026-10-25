@@ -245,62 +245,81 @@ st.markdown(ARTSY_CSS, unsafe_allow_html=True)
 # -------------------------------------------------------------
 # SVG GENERATORS FOR HERO & SYMMETRY
 # -------------------------------------------------------------
-def build_hero_animated_svg(pieces, w=600, h=450, replay_key=0):
+def build_hero_animated_svg(pieces, w=720, h=440, replay_key=0):
     """
     Renders an authentic vector SVG of the Kolam drawing itself stroke by stroke,
     with soft glowing filter and pulsing pulli dots.
     """
-    if not pieces:
+    valid_pieces = [p for p in pieces if len(p.get('pts', [])) > 0]
+    if not valid_pieces:
         return "<svg width='100%' height='300'></svg>"
 
-    # Cap number of pieces for animation performance (e.g. kolam109)
-    sub_pieces = pieces[:140] if len(pieces) > 160 else pieces
+    all_pts = np.vstack([p['pts'] for p in valid_pieces])
+    min_x, min_y = np.min(all_pts, axis=0)
+    max_x, max_y = np.max(all_pts, axis=0)
+    box_w = max(1.0, max_x - min_x)
+    box_h = max(1.0, max_y - min_y)
     
-    pad = 28
-    orig_w = max(1.0, max(np.max(p['pts'][:, 0]) for p in sub_pieces if len(p.get('pts', [])) > 0))
-    orig_h = max(1.0, max(np.max(p['pts'][:, 1]) for p in sub_pieces if len(p.get('pts', [])) > 0))
-    sc = min((w - 2 * pad) / orig_w, (h - 2 * pad) / orig_h)
+    # 5% padding around bounding box
+    pad_x = box_w * 0.05
+    pad_y = box_h * 0.05
+    vb_x = min_x - pad_x
+    vb_y = min_y - pad_y
+    vb_w = box_w + 2 * pad_x
+    vb_h = box_h + 2 * pad_y
     
-    path_elems = []
-    total_len = 0
-    for idx, p in enumerate(sub_pieces):
+    # Adaptive stroke width based on coordinate box
+    stroke_w = max(1.6, min(vb_w, vb_h) * 0.006)
+    
+    # Group pieces into 6 sequential phases for smooth 60fps cascading animation
+    num_phases = 6
+    phase_d = [[] for _ in range(num_phases)]
+    
+    for idx, p in enumerate(valid_pieces):
         ptype = p['type']
-        dur = 3.5
-        delay = (idx / max(1, len(sub_pieces))) * 2.2
         if ptype == 'line':
-            p0 = pad + p['p0'] * sc
-            p1 = pad + p['p1'] * sc
-            d = f"M {p0[0]:.1f} {p0[1]:.1f} L {p1[0]:.1f} {p1[1]:.1f}"
+            p0, p1 = p['p0'], p['p1']
+            cmd = f"M {p0[0]:.1f} {p0[1]:.1f} L {p1[0]:.1f} {p1[1]:.1f}"
         elif ptype == 'arc':
-            h_sc = pad + p['h'] * sc
-            k_sc = pad + p['k'] * sc
-            r_sc = p['r'] * sc
+            r = p['r']
             th0, th1 = p['th0'], p['th1']
             d_th = (th1 - th0 + np.pi) % (2 * np.pi) - np.pi
-            p0 = np.array([h_sc + r_sc * np.cos(th0), k_sc + r_sc * np.sin(th0)])
-            p1 = np.array([h_sc + r_sc * np.cos(th0 + d_th), k_sc + r_sc * np.sin(th0 + d_th)])
+            p0 = np.array([p['h'] + r * np.cos(th0), p['k'] + r * np.sin(th0)])
+            p1 = np.array([p['h'] + r * np.cos(th0 + d_th), p['k'] + r * np.sin(th0 + d_th)])
             large_arc = 1 if abs(d_th) > np.pi else 0
             sweep = 1 if d_th > 0 else 0
-            d = f"M {p0[0]:.1f} {p0[1]:.1f} A {r_sc:.1f} {r_sc:.1f} 0 {large_arc} {sweep} {p1[0]:.1f} {p1[1]:.1f}"
-        else:
-            P0 = pad + p['P0'] * sc
-            P1 = pad + p['P1'] * sc
-            P2 = pad + p['P2'] * sc
-            P3 = pad + p['P3'] * sc
-            d = f"M {P0[0]:.1f} {P0[1]:.1f} C {P1[0]:.1f} {P1[1]:.1f}, {P2[0]:.1f} {P2[1]:.1f}, {P3[0]:.1f} {P3[1]:.1f}"
+            cmd = f"M {p0[0]:.1f} {p0[1]:.1f} A {r:.1f} {r:.1f} 0 {large_arc} {sweep} {p1[0]:.1f} {p1[1]:.1f}"
+        else: # bezier
+            P0, P1, P2, P3 = p['P0'], p['P1'], p['P2'], p['P3']
+            cmd = f"M {P0[0]:.1f} {P0[1]:.1f} C {P1[0]:.1f} {P1[1]:.1f}, {P2[0]:.1f} {P2[1]:.1f}, {P3[0]:.1f} {P3[1]:.1f}"
             
+        phase_idx = (idx * num_phases) // len(valid_pieces)
+        phase_d[phase_idx].append(cmd)
+        
+    path_elems = []
+    for ph, d_list in enumerate(phase_d):
+        if not d_list:
+            continue
+        full_d = " ".join(d_list)
+        delay = ph * 0.45
+        dur = 3.0
         path_elems.append(
-            f'<path d="{d}" stroke="#f6efe0" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round" '
+            f'<path d="{full_d}" stroke="#f6efe0" stroke-width="{stroke_w:.2f}" fill="none" stroke-linecap="round" stroke-linejoin="round" '
             f'pathLength="1000" stroke-dasharray="1000" stroke-dashoffset="1000" '
             f'style="animation: drawStroke {dur}s cubic-bezier(0.4, 0, 0.2, 1) {delay:.2f}s forwards; filter:url(#kolamGlow);" />'
         )
         
+    mid_x = (min_x + max_x) / 2.0
+    mid_y = (min_y + max_y) / 2.0
+    r_outer = min(box_w, box_h) * 0.48
+    r_inner = min(box_w, box_h) * 0.28
+    
     svg_html = f"""
     <div style="width:100%; display:flex; justify-content:center; align-items:center; background:#0b0b14; border-radius:14px; border:1px solid rgba(255,153,51,0.25); box-shadow:0 10px 30px rgba(0,0,0,0.5); overflow:hidden;">
-      <svg width="100%" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
+      <svg width="100%" height="{h}" viewBox="{vb_x:.1f} {vb_y:.1f} {vb_w:.1f} {vb_h:.1f}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <filter id="kolamGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3.0" result="blur" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -310,15 +329,11 @@ def build_hero_animated_svg(pieces, w=600, h=450, replay_key=0):
             @keyframes drawStroke {{
               to {{ stroke-dashoffset: 0; }}
             }}
-            @keyframes dotPulse {{
-              0%, 100% {{ r: 3.2px; opacity: 0.65; fill: #f2b705; }}
-              50% {{ r: 4.8px; opacity: 1; fill: #ff9933; filter: drop-shadow(0 0 4px #ff9933); }}
-            }}
           </style>
         </defs>
         <!-- Soft decorative background rings -->
-        <circle cx="{w/2}" cy="{h/2}" r="{min(w,h)*0.42}" fill="none" stroke="rgba(255,153,51,0.08)" stroke-width="1.2" stroke-dasharray="4 6" />
-        <circle cx="{w/2}" cy="{h/2}" r="{min(w,h)*0.24}" fill="none" stroke="rgba(242,183,5,0.06)" stroke-width="1.0" />
+        <circle cx="{mid_x:.1f}" cy="{mid_y:.1f}" r="{r_outer:.1f}" fill="none" stroke="rgba(255,153,51,0.08)" stroke-width="{stroke_w*0.5:.2f}" stroke-dasharray="4 6" />
+        <circle cx="{mid_x:.1f}" cy="{mid_y:.1f}" r="{r_inner:.1f}" fill="none" stroke="rgba(242,183,5,0.06)" stroke-width="{stroke_w*0.4:.2f}" />
         
         <!-- Rendered Kolam Paths -->
         {''.join(path_elems)}
@@ -556,12 +571,49 @@ def main():
     # Compute pipeline stage images
     stage_res = run_stages_pipeline(image, family=fam_choice)
     
+    stage5_img = stage_res['stage5_ordered']
+    if is_upload or stage_res.get('path_logical') is None:
+        import matplotlib.pyplot as plt
+        import io
+        fig_o, ax_o = plt.subplots(figsize=(6, 6), dpi=150)
+        fig_o.patch.set_facecolor('#0b0b14')
+        ax_o.set_facecolor('#0b0b14')
+        ax_o.imshow(np.array(image), alpha=0.35)
+        
+        cmap_o = plt.get_cmap('plasma')
+        n_p = len(res['pieces'])
+        for p_idx, p in enumerate(res['pieces']):
+            col = cmap_o(p_idx / max(1, n_p - 1))
+            pts = p['pts']
+            if len(pts) > 1:
+                ax_o.plot(pts[:, 0], pts[:, 1], color=col, linewidth=1.6, alpha=0.9)
+                if p_idx % max(1, n_p // 10) == 0 and len(pts) > 3:
+                    mid = len(pts) // 2
+                    dx = pts[mid+1, 0] - pts[mid, 0]
+                    dy = pts[mid+1, 1] - pts[mid, 1]
+                    if np.hypot(dx, dy) > 1e-3:
+                        ax_o.annotate('', xy=(pts[mid+1, 0], pts[mid+1, 1]),
+                                      xytext=(pts[mid, 0], pts[mid, 1]),
+                                      arrowprops=dict(arrowstyle="->", color=col, lw=1.4))
+        
+        if len(res['pieces']) > 0 and len(res['pieces'][0]['pts']) > 0:
+            p_start = res['pieces'][0]['pts'][0]
+            ax_o.scatter([p_start[0]], [p_start[1]], c='#2ed573', s=60, zorder=5, edgecolors='white', linewidths=1.2)
+            
+        ax_o.axis('off')
+        fig_o.tight_layout(pad=0)
+        buf_o = io.BytesIO()
+        fig_o.savefig(buf_o, format='png', facecolor='#0b0b14', bbox_inches='tight')
+        plt.close(fig_o)
+        buf_o.seek(0)
+        stage5_img = Image.open(buf_o)
+    
     # Stage cards data
     journey_stages = [
         ("01", "Original Image", stage_res['stage1_orig'], "Raw input capture"),
         ("02", "Cleaned Mask", stage_res['stage3_cleaned'], "Otsu threshold & dot filtering"),
         ("03", "Skeleton", stage_res['stage4_skeleton'], "1-pixel medial axis"),
-        ("04", "Ordered Trajectory", stage_res['stage5_ordered'], "Direction arrows & start node"),
+        ("04", "Ordered Trajectory", stage5_img, "Direction arrows & start node"),
         ("05", "Equations Canvas", (res['canvas_regen'] * 255).astype(np.uint8), f"Fitted {len(res['pieces'])} primitives"),
         ("06", "Verification Overlay", None, f"Overlay ({f1_label}: {res['f1']*100:.1f}%)")
     ]
