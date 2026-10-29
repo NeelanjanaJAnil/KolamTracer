@@ -73,6 +73,17 @@ body, .stApp {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+.block-container {
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+    padding-top: 1.5rem !important;
+    padding-bottom: 3rem !important;
+}
+
+div[data-testid="stMarkdownContainer"], .stMarkdown {
+    width: 100% !important;
+}
+
 h1, h2, h3, h4 {
     font-family: 'Cormorant Garamond', Georgia, serif !important;
     color: #ff9933 !important;
@@ -81,35 +92,47 @@ h1, h2, h3, h4 {
 }
 
 .hero-container {
-    text-align: center;
-    padding: 2.2rem 1rem 1.2rem 1rem;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    margin: 0 auto !important;
+    padding: 1.8rem 1rem 1.2rem 1rem !important;
     position: relative;
 }
 
 .hero-title {
-    font-family: 'Cormorant Garamond', Georgia, serif;
-    font-size: 3.4rem;
-    font-weight: 700;
-    color: #ff9933;
-    margin: 0;
+    font-family: 'Cormorant Garamond', Georgia, serif !important;
+    font-size: 3.4rem !important;
+    font-weight: 700 !important;
+    color: #ff9933 !important;
+    margin: 0 auto !important;
+    text-align: center !important;
+    width: 100% !important;
     text-shadow: 0 0 20px rgba(255, 153, 51, 0.35);
     letter-spacing: -0.5px;
 }
 
 .hero-tagline {
-    font-family: 'Noto Serif Tamil', 'Cormorant Garamond', Georgia, serif;
-    font-size: 1.35rem;
-    color: #f2b705;
-    margin-top: 0.3rem;
-    margin-bottom: 0.6rem;
+    font-family: 'Noto Serif Tamil', 'Cormorant Garamond', Georgia, serif !important;
+    font-size: 1.35rem !important;
+    color: #f2b705 !important;
+    margin: 0.3rem auto 0.6rem auto !important;
+    text-align: center !important;
+    width: 100% !important;
     letter-spacing: 0.5px;
 }
 
 .hero-subtitle {
-    font-size: 0.98rem;
-    color: #a4b0be;
-    max-width: 820px;
-    margin: 0 auto 1.4rem auto;
+    font-size: 0.98rem !important;
+    color: #a4b0be !important;
+    max-width: 820px !important;
+    width: 100% !important;
+    margin: 0 auto 1.4rem auto !important;
+    text-align: center !important;
     line-height: 1.5;
 }
 
@@ -458,10 +481,10 @@ def main():
     # SECTION 1: HERO
     # ---------------------------------------------------------
     st.markdown("""
-    <div class="hero-container">
-        <h1 class="hero-title">Kolam Inverse</h1>
-        <div class="hero-tagline">கோலம் · from image to equation</div>
-        <p class="hero-subtitle">
+    <div class="hero-container" style="text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto;">
+        <h1 class="hero-title" style="text-align: center; width: 100%; margin: 0 auto;">Kolam Inverse</h1>
+        <div class="hero-tagline" style="text-align: center; width: 100%; margin: 0.3rem auto 0.6rem auto;">கோலம் · from image to equation</div>
+        <p class="hero-subtitle" style="text-align: center; width: 100%; max-width: 820px; margin: 0 auto 1.4rem auto;">
             Universal mathematical inverse graphics engine: extracts one-pixel centerline skeletons, 
             decomposes planar graphs into smooth primitive branches, and verifies exact closed-form reconstruction.
         </p>
