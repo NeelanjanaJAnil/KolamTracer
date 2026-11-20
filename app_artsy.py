@@ -720,8 +720,6 @@ def main():
     
     stage5_img = stage_res['stage5_ordered']
     if is_upload or stage_res.get('path_logical') is None:
-        import matplotlib.pyplot as plt
-        import io
         fig_o, ax_o = plt.subplots(figsize=(6, 6), dpi=150)
         fig_o.patch.set_facecolor('#0b0b14')
         ax_o.set_facecolor('#0b0b14')

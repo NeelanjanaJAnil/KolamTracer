@@ -282,6 +282,6 @@ def render_graph_topology_figure(active_edges, odd_nodes, toggled_paths=None, dp
         
     ax.axis('off')
     ax.set_aspect('equal')
-    ax.legend(facecolor='#12121f', edgecolor='rgba(255,153,51,0.3)', labelcolor='#f6efe0', loc='lower center', ncol=2, fontsize=8)
+    ax.legend(facecolor='#12121f', edgecolor=(1.0, 0.6, 0.2, 0.3), labelcolor='#f6efe0', loc='lower center', ncol=2, fontsize=8)
     fig.tight_layout(pad=0.2)
     return fig
